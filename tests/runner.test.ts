@@ -194,3 +194,25 @@ process.stdin.on("data", chunk => {
   assert.equal(provider.status, 1);
   assert.match(provider.stderr, /The usage limit has been reached/);
 });
+
+test("discard removes a direct session's record without touching git", () => {
+  const root = scratchRepo("pi-run-direct-");
+  const sessions = join(root, ".agents/scratchpad/pi/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const record = {
+    kind: "direct",
+    id: "review-1",
+    command: "review",
+    mainCheckout: root,
+    worktree: root,
+    baseCommit: git(root, "rev-parse", "HEAD"),
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  writeFileSync(join(sessions, "review-1.pi-run.json"), JSON.stringify(record));
+
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const output = execFileSync(process.execPath, [cli, "discard", root, "review-1"], { encoding: "utf8" });
+  assert.match(output, /Discarded 'review-1'/);
+  assert.equal(existsSync(join(sessions, "review-1.pi-run.json")), false);
+  assert.equal(git(root, "status", "--porcelain"), "");
+});

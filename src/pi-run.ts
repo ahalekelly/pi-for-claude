@@ -369,6 +369,8 @@ async function runPrompt(name: string, projectValue: string, values: string[]): 
   if (command.lifecycle === "reuse") {
     const id = flags.args[0];
     if (!id) fail(`${name} requires a session id`);
+    // Direct (read-only) sessions are not rejected here, so resuming one grants the
+    // worktree-write sandbox to the directory the original run could only read.
     session = readSession(dirs.sessions, id);
     promptArgs = flags.args.slice(1);
     if (!existsSync(session.worktree)) fail(`Session worktree is missing: ${session.worktree}`);
@@ -486,9 +488,10 @@ function merge(project: string, id: string): void {
 function discard(project: string, id: string): void {
   const { main, sessions } = sessionDirs(project);
   const session = readSession(sessions, id);
-  if (session.kind !== "worktree") fail(`Session '${id}' has no disposable worktree`);
-  git(main, ["worktree", "remove", "--force", session.worktree]);
-  git(main, ["branch", "-D", session.branch]);
+  if (session.kind === "worktree") {
+    git(main, ["worktree", "remove", "--force", session.worktree]);
+    git(main, ["branch", "-D", session.branch]);
+  }
   rmSync(sessionPath(sessions, id));
   process.stdout.write(`Discarded '${id}'.\n`);
 }

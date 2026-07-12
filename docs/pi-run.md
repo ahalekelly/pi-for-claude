@@ -48,7 +48,7 @@ pi-run resume-and-resolve-merge "$PROJECT_DIR" fix-auth "Preserve both validatio
 
 Review the resolved files, stage them, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
 
-Use `pi-run discard "$PROJECT_DIR" fix-auth` to explicitly delete an unwanted session worktree and branch.
+Use `pi-run discard "$PROJECT_DIR" fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
 
 ## Commands
 
@@ -68,7 +68,7 @@ Built-in commands do not call a model:
 - `followup <project> <session> <message>` — queue work after the current agent run settles.
 - `interrupt <project> <session>` — abort the active turn; the session remains resumable.
 - `merge <project> <session>` — rebase, fast-forward, and clean up.
-- `discard <project> <session>` — force-remove the worktree and branch.
+- `discard <project> <session>` — force-remove the worktree and branch, or just the record for review sessions.
 - `help` — render prompt names, argument hints, and descriptions.
 
 Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments plus `--model <label-or-id>`, `--thinking <level>`, and `--base <ref>`. Paths are resolved from the supplied project directory. Model and thinking flags override prompt frontmatter.
