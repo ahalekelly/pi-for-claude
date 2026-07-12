@@ -463,9 +463,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   if (command.outputAppend) process.stdout.write(`${shell(command.outputAppend, session.worktree)}\n`);
   if (session.kind === "worktree" && command.sandbox === "worktree-write") {
     const blocker = handbackBlocker(session.worktree);
-    if (blocker) {
-      process.stdout.write(`\nWARNING: the session did not hand back cleanly despite a reminder. Resolve in ${session.worktree} or resume the session.\n${blocker}\n`);
-    }
+    if (blocker) process.stdout.write(`\n${messageTemplate("handback-warning", { worktree: session.worktree, problem: blocker })}\n`);
   }
 }
 
