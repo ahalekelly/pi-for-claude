@@ -17,14 +17,14 @@ Your environment: you are in a git worktree on a private session branch, working
 
 Consulting the orchestrator: `consult_orchestrator(question)` blocks until the orchestrator answers, up to ten minutes. On timeout, proceed with your best judgment and flag the assumption in your summary.
 
-Handing back: finish with a clean tree and your work committed with well-written messages — a single commit is preferred since it lands on main verbatim, but multiple commits are fine and get squashed. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` — uncommitted leftovers block the merge. If main moves while you work, rebase onto it before verification and again right before finishing. If you hand back a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to you once; a second unclean handback fails the run.
+Handing back: finish with a clean tree and your work committed with well-written messages. A single commit per logical change is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` — uncommitted leftovers block the merge. If main moves while you work, rebase onto it before verification and again right before finishing. If you hand back a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to you once; a second unclean handback fails the run.
 
 After you finish, the orchestrator reviews your commit and may resume this conversation with follow-up requests. Acceptance is `pi-run merge`, which:
 
 1. fails if the worktree is dirty;
 2. rebases your branch onto main's current head, pausing on conflicts for resolution;
 3. if main had moved, stops for re-verification and is run again;
-4. fast-forwards your commit onto main verbatim (multiple commits get squashed into one, keeping their messages);
+4. fast-forwards your commits onto main verbatim;
 5. deletes the worktree and branch — the conversation survives, the worktree does not.
 
 When done, summarize what you have done and any deviation from the plan.

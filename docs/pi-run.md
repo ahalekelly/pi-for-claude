@@ -39,7 +39,7 @@ After the run:
 2. Run the project’s verification in the worktree.
 3. Run `pi-run merge fix-auth`.
 
-`merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. A single commit lands verbatim; several commits are squashed into one carrying their messages oldest-first, so each merged session is exactly one commit on main either way. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
+`merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. The session’s commits fast-forward onto main verbatim. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
 
 If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress. Resolve them there, or use:
 
@@ -69,7 +69,7 @@ Built-in commands do not call a model:
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
 - `interrupt <session>` — abort the active turn; the session remains resumable.
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends.
-- `merge <session>` — land the session as one commit on main and clean up.
+- `merge <session>` — rebase, fast-forward the session’s commits onto main, and clean up.
 - `discard <session>` — force-remove the worktree and branch, or just the record for review sessions.
 - `help` — render prompt names, argument hints, and descriptions.
 

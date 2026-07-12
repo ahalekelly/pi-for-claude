@@ -528,13 +528,6 @@ function merge(project: string, id: string): void {
   const rebasedOnto = session.mergeState.kind === "rebased" ? session.mergeState.onto : mainHead;
   if (git(main, ["rev-parse", "HEAD"]) !== rebasedOnto) fail("Main moved after rebase; run merge again to rebase onto its new HEAD");
   if (git(session.worktree, ["rev-parse", "HEAD"]) === rebasedOnto) fail(`Session '${id}' has no changes to merge`);
-  // A single commit fast-forwards verbatim; a multi-commit session is squashed
-  // into one commit carrying the session's messages oldest-first.
-  if (git(session.worktree, ["rev-list", "--count", `${rebasedOnto}..HEAD`]) !== "1") {
-    const message = git(session.worktree, ["log", "--reverse", "--format=%B", `${rebasedOnto}..HEAD`]).trim();
-    git(session.worktree, ["reset", "--soft", rebasedOnto]);
-    git(session.worktree, ["commit", "-m", message]);
-  }
   git(main, ["merge", "--ff-only", session.branch]);
   git(main, ["worktree", "remove", session.worktree]);
   git(main, ["branch", "-d", session.branch]);

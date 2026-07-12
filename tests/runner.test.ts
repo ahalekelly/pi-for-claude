@@ -152,8 +152,8 @@ process.stdin.on("data", chunk => {
   assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root }), /Merged 'fix-auth'/);
   assert.equal(readFileSync(join(root, "auth.txt"), "utf8"), "fixed\n");
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "resolved\n");
-  assert.equal(git(root, "log", "-1", "--format=%B"), "Fix auth flow\n\nHandle session change");
-  assert.equal(git(root, "rev-list", "--count", "HEAD"), "3", "main gains exactly one commit for the whole session");
+  assert.equal(git(root, "log", "-1", "--format=%s"), "Handle session change");
+  assert.equal(git(root, "rev-list", "--count", "HEAD"), "4", "the session's commits fast-forward onto main verbatim");
   assert.equal(existsSync(worktree), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
 });

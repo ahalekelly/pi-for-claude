@@ -24,7 +24,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
 6. To make changes, use `pi-run resume <session> "<message>"` to ask for further edits, or for minor edits you can edit the worktree files yourself (`queue` only works while a run is still active)
 
-7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards main, and removes the worktree and branch. Pi's commit lands verbatim (multiple commits get squashed into one, keeping their messages), so each merged session is exactly one commit on main. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
+7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and removes the worktree and branch. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
 
    If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume-and-resolve-merge <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
 
@@ -43,7 +43,7 @@ Full pi-run command reference:
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles
 - `interrupt <session>` — abort the active turn; the session remains resumable
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends
-- `merge <session>` — land the session as one commit on main and clean up the worktree and branch
+- `merge <session>` — rebase, fast-forward the session's commits onto main, and clean up the worktree and branch
 - `discard <session>` — force-remove the worktree and branch (review sessions: just the metadata record)
 - `help` — render prompt names, argument hints, and descriptions
 
