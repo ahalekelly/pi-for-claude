@@ -46,8 +46,7 @@ function msg(name: string, injections: Record<string, string> = {}): string {
 
 function sessionDirs(project: string) {
   const main = mainCheckout(project);
-  const scratch = join(main, ".agents", "scratchpad", "pi");
-  const sessions = join(scratch, "sessions");
+  const sessions = join(main, ".agents", "sessions");
   const worktrees = join(main, ".agents", "scratchpad", "worktrees");
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
   mkdirSync(worktrees, { recursive: true });

@@ -164,7 +164,7 @@ test("failures before and during a run fail fast without burning the session id"
   const piRunHome = makePiRunHome(root);
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
   const worktree = join(root, ".agents/scratchpad/worktrees/plan");
-  const sessionFile = join(root, ".agents/scratchpad/pi/sessions/plan.pi-run.json");
+  const sessionFile = join(root, ".agents/sessions/plan.pi-run.json");
   const run = (env: Record<string, string>, ...args: string[]) =>
     spawnSync(process.execPath, [cli, "run", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
 
@@ -215,7 +215,7 @@ test("a live control socket blocks a new run; a stale one is cleaned up", async 
   const root = scratchRepo("pi-run-guard-");
   const piRunHome = makePiRunHome(root);
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  const sessions = join(root, ".agents/scratchpad/pi/sessions");
+  const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const crashPi = join(root, "crash-pi.mjs");
   writeFileSync(crashPi, `#!/usr/bin/env node\nprocess.exit(2);\n`);
@@ -322,7 +322,7 @@ test("a second unclean handback settles and reports the problem to the orchestra
 
 test("discard removes a direct session's record without touching git", () => {
   const root = scratchRepo("pi-run-direct-");
-  const sessions = join(root, ".agents/scratchpad/pi/sessions");
+  const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
     kind: "direct",
@@ -344,7 +344,7 @@ test("discard removes a direct session's record without touching git", () => {
 
 test("watch prints each question once and exits when the session ends", async () => {
   const root = scratchRepo("pi-run-watch-");
-  const sessions = join(root, ".agents/scratchpad/pi/sessions");
+  const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
     kind: "direct",
@@ -358,7 +358,7 @@ test("watch prints each question once and exits when the session ends", async ()
   const recordPath = join(sessions, "w1.pi-run.json");
   writeFileSync(recordPath, JSON.stringify(record));
   const question = join(sessions, "w1.question.md");
-  const answer = join(realpathSync(root), ".agents/scratchpad/pi/sessions", "w1.answer.md");
+  const answer = join(realpathSync(root), ".agents/sessions", "w1.answer.md");
   writeFileSync(question, "Which auth flow?");
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
