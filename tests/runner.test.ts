@@ -342,7 +342,7 @@ test("discard removes a direct session's record without touching git", () => {
   assert.equal(git(root, "status", "--porcelain"), "");
 });
 
-test("watch prints each question once and exits when the run ends", async () => {
+test("watch prints each question once and exits when the session ends", async () => {
   const root = scratchRepo("pi-run-watch-");
   const sessions = join(root, ".agents/scratchpad/pi/sessions");
   mkdirSync(sessions, { recursive: true });
@@ -355,11 +355,10 @@ test("watch prints each question once and exits when the run ends", async () => 
     baseCommit: git(root, "rev-parse", "HEAD"),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
-  writeFileSync(join(sessions, "w1.pi-run.json"), JSON.stringify(record));
-  const control = join(sessions, "w1.ctl");
+  const recordPath = join(sessions, "w1.pi-run.json");
+  writeFileSync(recordPath, JSON.stringify(record));
   const question = join(sessions, "w1.question.md");
   const answer = join(realpathSync(root), ".agents/scratchpad/pi/sessions", "w1.answer.md");
-  writeFileSync(control, "");
   writeFileSync(question, "Which auth flow?");
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
@@ -386,12 +385,12 @@ test("watch prints each question once and exits when the run ends", async () => 
     await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
     assert.equal(stdout.match(/Which auth flow\?/g)?.length, 1);
 
-    rmSync(control);
+    rmSync(recordPath);
     const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
     assert.equal(exitCode, 0);
-    assert.match(stdout, /no longer running/);
+    assert.match(stdout, /has ended/);
   } finally {
-    if (existsSync(control)) rmSync(control);
+    if (existsSync(recordPath)) rmSync(recordPath);
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 });

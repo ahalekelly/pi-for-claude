@@ -68,7 +68,7 @@ Built-in commands do not call a model:
 - `steer <session> <message>` — deliver a message after the current tool calls and before the next model call.
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
 - `interrupt <session>` — abort the active turn; the session remains resumable.
-- `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends.
+- `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the session is merged or discarded.
 - `merge <session>` — rebase, fast-forward the session’s commits onto main, and clean up.
 - `discard <session>` — force-remove the worktree and branch, or just the record for review sessions.
 - `help` — render prompt names, argument hints, and descriptions.
@@ -81,7 +81,7 @@ Session JSONL, metadata, event logs, and control sockets live under `<main>/.age
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 
-After launching each run or resume, start a Monitor running `pi-run watch <session>`. It emits each question with the path to write the answer to, and exits when the session's run ends. `watch` is scoped to one session so multiple orchestrators can share a repo without seeing each other's questions — only watch sessions you launched. Note that `watch` cannot distinguish an answered question from one that hit the consult timeout.
+When launching a run, start one Monitor running `pi-run watch <session>`. It lives as long as the session — covering the initial run and every resume — emits each question with the path to write the answer to, and exits when the session is merged or discarded. `watch` is scoped to one session so multiple orchestrators can share a repo without seeing each other's questions — only watch sessions you launched. Note that `watch` cannot distinguish an answered question from one that hit the consult timeout.
 
 ## Sandbox
 

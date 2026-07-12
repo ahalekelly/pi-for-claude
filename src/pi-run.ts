@@ -418,9 +418,10 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (!plan) fail(msg("requires-plan-file", { name }));
     if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
     const id = sessionIdFromPlan(plan);
-    if (existsSync(sessionPath(dirs.sessions, id)) || piSessionFiles(dirs.sessions, id).length > 0) {
-      fail(msg("session-already-exists", { id }));
-    }
+    if (existsSync(sessionPath(dirs.sessions, id))) fail(msg("session-already-exists", { id }));
+    // A merged or discarded session leaves its conversation JSONL behind, which
+    // permanently reserves the name; only "resume it" would be a lie here.
+    if (piSessionFiles(dirs.sessions, id).length > 0) fail(msg("session-name-burned", { id }));
     const worktree = join(dirs.worktrees, id);
     const branch = `pi/${id}`;
     const baseCommit = git(dirs.main, ["rev-parse", "HEAD"]);
@@ -554,16 +555,15 @@ function help(): void {
   process.stdout.write(msg("help-builtins"));
 }
 
+// Lives as long as the session, not a single run: one watch covers the initial
+// run and every resume, and exits when merge or discard removes the session.
 async function watch(project: string, id: string): Promise<void> {
   const { sessions } = sessionDirs(project);
   readSession(sessions, id);
-  const control = join(sessions, `${id}.ctl`);
+  const record = sessionPath(sessions, id);
   const question = join(sessions, `${id}.question.md`);
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const graceDeadline = Date.now() + 60_000;
-  while (!existsSync(control) && Date.now() < graceDeadline) await sleep(500);
-  if (!existsSync(control)) fail(msg("session-not-running", { id }));
-  while (existsSync(control)) {
+  while (existsSync(record)) {
     if (existsSync(question)) {
       let text: string;
       try {
@@ -576,7 +576,7 @@ async function watch(project: string, id: string): Promise<void> {
     }
     await sleep(500);
   }
-  process.stdout.write(`${msg("session-no-longer-running", { id })}\n`);
+  process.stdout.write(`${msg("session-ended", { id })}\n`);
 }
 
 async function main(argv: string[]): Promise<void> {

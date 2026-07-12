@@ -30,13 +30,12 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
    If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
 
-8. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Discard a session's worktree with `pi-run discard <session>` (never just delete the worktree directory).
+8. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Discard a session's worktree with `pi-run discard <session>` (never just delete the worktree directory). Once a session worktree is deleted with `merge` or `discard`, the session cannot be resumed, but the session log is still available on disk.
 
 Full pi-run command reference:
 
 - `run <plan-file>` — implement a plan in a new worktree and session; plan path may be relative to the current directory
 - `resume <session> <follow-up>` — continue the same pi conversation and worktree; fails while a run is still active
-- `resume-and-resolve-merge <session> [instructions]` — continue the session with the active conflict list injected
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it
 - `sessions` — list session ids, originating commands, and worktrees
@@ -44,7 +43,7 @@ Full pi-run command reference:
 - `steer <session> <message>` — deliver a message mid-turn, before the next model call
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles
 - `interrupt <session>` — abort the active turn; the session remains resumable
-- `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends
+- `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, lives across resumes, exits when the session is merged or discarded
 - `merge <session>` — rebase, fast-forward the session's commits onto main, and clean up the worktree and branch
 - `discard <session>` — force-remove the worktree and branch (review sessions: just the metadata record)
 - `help` — render prompt names, argument hints, and descriptions
