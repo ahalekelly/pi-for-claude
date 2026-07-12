@@ -1,108 +1,169 @@
 # pi-for-claude
 
-`pi-for-claude` delegates implementation and review commands to pi. Worktree implementations stay isolated in persistent git worktrees; in-place implementations edit the project directory directly. Prompt files define model, thinking, sandbox, worktree, and session behavior; the runner owns git layout, RPC control, and session metadata.
+Allow Claude Code to delegate tasks to the Pi agent. Pi supports OpenAI Codex, Google Gemini, and many other models.
+
+Features:
+
+- Claude can provide steering instructions or interrupt Pi mid-task
+- Pi can consult Claude when it needs guidance
+- Resume Pi sessions with their full conversation context
+- View Pi agent sessions live in your browser
+- Optional git worktrees for each Pi agent. Automatically handles basic rebases
+- Sandbox each run with scoped filesystem and network access
+- A simple format to save prompts and workflows. Separate model and sandbox settings for each saved prompt
+
+Each Pi session shows up as a "monitor" in the Claude Code status bar, because Claude is monitoring the session.
+
+Add a Markdown file with the prompt header to prompts/ to create a new pi-for-claude command.
 
 ## Setup
 
-Run `npm ci` in the repository checkout. Add its command directory to `PATH`:
+You must have Node.js 22.19 or newer.
+
+Install from GitHub:
 
 ```sh
-export PATH="$PATH:/path/to/pi-for-claude/bin"
+npm install --global github:ahalekelly/pi-for-claude
 ```
 
-`models.json` maps stable labels to provider/model ids. A label may be a string or an object with a default thinking level:
+Log in to your model providers of choice on Pi.
 
-```json
-{
-  "default": "openai-codex/gpt-5.6-terra",
-  "best": { "model": "openai-codex/gpt-5.6-sol", "thinking": "high" }
-}
-```
-
-Unknown labels, malformed config, and missing required settings fail before pi starts.
-
-## Implementation workflow
-
-Commands in a git project can run from any subdirectory or linked worktree; the runner resolves to the main checkout.
-
-Write a uniquely named plan, then start a session:
+Add the instructions to Claude Code's global `CLAUDE.md`:
 
 ```sh
-pi-for-claude implement-in-worktree path/to/fix-auth.md
+l="@$(npm root -g)/pi-for-claude/prompts/pi-for-claude-instructions.md"; grep -qxF "$l" ~/.claude/CLAUDE.md || echo "$l" >> ~/.claude/CLAUDE.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. A rebase left in progress never bounces: it is pi escalating a conflict it shouldn’t judge, and the run completes with a warning listing the conflicted files. Conflicts against main are otherwise not pi’s to resolve — they surface at merge time.
+Ignore pi-for-claude's project files globally:
 
-After the run:
+```sh
+printf '%s\n' .agents/sessions/ .agents/plans/ .agents/worktrees/ >> ~/.config/git/ignore
+```
 
-1. Inspect the final response and worktree diff.
-2. Run the project’s verification in the worktree.
-3. Run `pi-for-claude merge fix-auth`.
+## Running Pi-for-Claude
 
-`merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. The session’s commits fast-forward onto main verbatim. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
+Claude writes the task plan in a Markdown file, then passes it to `run`:
 
-If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress.
+```sh
+pi-for-claude run .agents/plans/fix-auth.md
+```
 
-Resolve the merge, stage the changes, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
+Pi reads the plan file and edits the current project directly. Pi's questions for Claude get sent to stdout, Claude uses `Monitor` to get alerted to these and respond in a specified file.
 
-Use `pi-for-claude discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review or in-place session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
+`run` uses the `project-write` sandbox: Pi can edit project files, but it cannot write git metadata.
 
-### In-place sessions
+The task file basename becomes the session id: `fix-auth.md` creates session `fix-auth`. A unique filename must be used for each task session.
 
-`pi-for-claude run <plan-file>` edits the project directory directly without creating a branch or worktree, and it works without git. In a non-git project, run every pi-for-claude command from the project root: the root is the resolved current directory, so a different directory cannot find the session and fails with `Unknown session`. Review in-place changes normally, then use `discard <session>` to close the session; there is no merge step and discard leaves project files in place.
+You can view the session in your browser:
+
+```sh
+pi-for-claude view fix-auth --live
+```
+
+To resume the same conversation when Pi needs another pass:
+
+```sh
+pi-for-claude resume fix-auth "Handle the failing edge-case test."
+```
+
+In a non-git project, the directory you run the commands in identifies the project and its sessions.
+
+## Run Pi in an isolated worktree
+
+Use `implement-in-worktree` when you want to keep Pi's changes out of your current checkout or run several agents in parallel:
+
+```sh
+pi-for-claude implement-in-worktree .agents/plans/fix-auth.md
+```
+
+This command requires git. It creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi works and commits on that private branch. The sandbox allows Pi to edit and commit only inside its session worktree.
+
+Inspect and verify the worktree, then merge it:
+
+```sh
+pi-for-claude merge fix-auth
+```
+
+`merge` rebases the private branch onto the current main branch, fast-forwards main, and removes the worktree and branch. If main changed, `merge` will stop after rebasing so Claude can verify. Run `merge` again to finish.
+
+If a rebase conflicts, pi-for-claude reports the files and leaves the rebase for Claude to decide.
+
+Discard unwanted work instead:
+
+```sh
+pi-for-claude discard fix-auth
+```
+
+The conversation remains available through `result` and `view` after a worktree is merged or discarded.
+
+## Control a running session
+
+These commands communicate with a live Pi run:
+
+```sh
+pi-for-claude steer fix-auth "Check the migration before changing the schema."
+pi-for-claude queue fix-auth "Run the integration tests after this pass."
+pi-for-claude interrupt fix-auth
+```
+
+`steer` adds a message after the next tool call. `queue` adds a message after the current task is done. `interrupt` stops the turn but keeps the session resumable.
+
+Pi can call `consult_orchestrator` when it needs a decision. The running command prints the question and the answer-file path, then waits up to ten minutes for Claude to reply.
 
 ## Commands
 
-Prompt commands:
+Prompt commands call a model:
 
-- `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session.
-- `run <plan-file>` — implement a plan directly in the project directory.
-- `resume <session> <follow-up>` — continue the same pi conversation and worktree or project directory.
-- `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
+- `run <plan-file>` — implement a task in the current project
+- `implement-in-worktree <plan-file>` — implement a task in a new worktree
+- `resume <session> <follow-up>` — continue an implementation session
+- `review [session] [focus] [--base <ref>]` — review the current project or a session worktree without writing to it
 
 Built-in commands do not call a model:
 
-- `sessions` — list session ids, originating commands, and directories.
-- `result <session>` — print the last completed assistant response.
-- `view <session> [--no-open]` — export the conversation beside its JSONL as HTML and open it in the default browser.
-- `steer <session> <message>` — deliver a message after the current tool calls and before the next model call.
-- `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
-- `interrupt <session>` — abort the active turn; the session remains resumable.
-- `merge <session>` — rebase, fast-forward the session’s commits onto main, and clean up.
-- `discard <session>` — force-remove a worktree and branch, or just the record for review and in-place sessions.
-- `help` — render prompt names, argument hints, and descriptions.
+- `sessions` — list sessions and their working directories
+- `result <session>` — print the last assistant response
+- `view <session> [--live | --no-open]` — export the conversation to HTML and optionally keep it updated
+- `steer <session> <message>` — redirect a live turn
+- `queue <session> <message>` — queue follow-up work
+- `interrupt <session>` — stop a live turn
+- `merge <session>` — integrate and clean up a worktree session
+- `discard <session>` — close a session and, if present, remove its worktree and branch
+- `help` — list the available prompt commands
 
-Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments plus `--model <label-or-id>`, `--thinking <level>`, and `--base <ref>`. Paths are resolved from the current directory. Model and thinking flags override prompt frontmatter.
+Prompt commands accept `--model <label-or-id>`, `--thinking <level>`, `--base <ref>`, and repeatable `--prepend <file>` and `--append <file>` attachments.
 
-## Sessions and control
+## Model Selection
 
-Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Outside git, `<main>` is the project root. Metadata and event logs share the session's creation prefix: `<timestamp>-<session>.pi-for-claude.json` and `<timestamp>-<session>.log`. Commands still address the session by its plain id. `view` requires exactly one matching JSONL, writes an HTML file with the same basename beside it, and accepts `--no-open` to export without launching the browser. Starting `implement-in-worktree` or `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
+`models.json` gives provider/model ids stable labels. Every label requires a thinking level:
 
-During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
+```json
+{
+  "default": {
+    "model": "openai-codex/gpt-*-sol",
+    "thinking": "medium"
+  },
+  "cheap": {
+    "model": "openai-codex/gpt-*-luna",
+    "thinking": "medium"
+  }
+}
+```
 
-Launch each run or resume directly in one persistent Monitor. The run emits each consult question once with its answer-file path. It also warns at every complete five-minute interval without RPC events; a pending consult suppresses those warnings. Each Monitor is scoped to one invocation and exits when that invocation settles.
+A single `*` selects the registered model with the highest one- or two-part numeric version. The provider is part of the pattern, so `openai-codex/gpt-*-sol` never selects the corresponding `openai` model.
+
+## Reusable Prompts
+
+Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, sandbox, and session lifecycle; their body defines the prompt sent to Pi. `pre-run-shell` runs before Pi and prepends its stdout to the prompt. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and `shell` emits traced, best-effort shell output. Shell entries can appear before or after `pi`, though Pi finishes before the output list is rendered. Trusted shell blocks run outside Pi's sandbox. The included commands are useful examples.
 
 ## Sandbox
 
-`worktree-write` implementation runs allow writes only in the session worktree and temporary storage. `project-write` in-place runs allow writes in the project directory and temporary storage, but never grant git writes. `read-only` review runs allow temporary writes only. All modes:
+Each prompt chooses one sandbox:
 
-- route every bash call to the sandbox extension’s OS-sandboxed implementation; pi registers the extension’s `bash` over its builtin tool, so the builtin bash never executes;
-- explicitly allowlist tools in every mode so no unlisted tool is available; `bash` remains listed because pi applies allowlists to extension tools too;
-- disable extension discovery and load only pi-for-claude's sandbox and consult extensions;
-- cap each bash command at 600 seconds; a missing or zero timeout uses that cap;
-- guard pi’s built-in read, write, edit, grep, find, and list tools;
-- scope git writes for `worktree-write` to the session: pi can stage, commit, and rebase its own branch and append to `info/exclude`, while hooks, config (including `config.worktree`), other branches, the `commondir`/`gitdir` worktree pointers, and the worktree's `.git` file stay write-blocked;
-- block all `.git` writes for `project-write`;
-- block reads of configured secret and credential paths;
-- limit network access from bash to the domains in `extensions/sandbox/sandbox.json`;
-- fail closed: if OS sandbox initialization fails, bash remains blocked.
+- `project-write` can edit the current project but cannot write git metadata
+- `worktree-write` can edit and commit only inside its session worktree
+- `read-only` cannot edit the project
 
-The pi process itself retains provider network access. Injection and `output-append` commands are trusted local configuration executed by the runner outside the pi sandbox. Project-external reads are allowed except for the explicit sensitive paths in the policy; this lets agents read shared SDKs and documentation while preventing common credential access.
+All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. The Pi process retains access to its model provider.
 
-The built-in file guard resolves the nearest existing ancestor before checking a new path, so writes through existing symlinks are checked against the symlink target. In-process path checks still have an unavoidable time-of-check/time-of-use gap. Bash is enforced by the operating system and does not share that limitation.
-
-The sandbox extension is a fail-closed adaptation of the vetted `@sysid/pi-sandbox` design. Its interactive permission grants are deliberately omitted because RPC reports a UI even when no human is present; unknown writes and network destinations stay blocked. The OS enforcement uses the pinned `@sysid/sandbox-runtime-improved` version from that package.
-
-## Prompt files
-
-Commands are Markdown files under `prompts/`. `prompts/strings.json` holds every other piece of model-facing text — CLI errors, status lines, corrections, sandbox denial reasons — as a flat map of key to `$name`-placeholder template, rendered by the same substitution as prompt bodies; code never embeds model-facing text inline. Required frontmatter fields are `description`, `argument-hint`, `model`, `sandbox`, `worktree`, and `session`. `thinking` is optional when the selected model label supplies it. Optional `inject` entries run trusted shell commands in the target worktree; `output-append` runs after a completed turn. Template bodies support pi positional syntax (`$1`, `$@`, `$ARGUMENTS`, `${1:-default}`, and `${@:N:L}`) plus named injected values.
+Session data lives under `<main>/.agents/sessions`. In git projects, pi-for-claude resolves this through the shared checkout so sessions survive worktree removal.
