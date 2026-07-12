@@ -14,11 +14,17 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    pi-run implement-in-worktree .agents/plans/<session>.md
    ```
 
-3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
+3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor:
+
+   ```js
+   Monitor({ command: "pi-run watch <session>", description: "pi consult questions for session <session>", persistent: true, timeout_ms: 300000 })
+   ```
+
+   Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
    
 4. While the subagent is running you can also redirect it with `steer`, `queue`, and `interrupt`.
 
-5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response, each command shown with its output. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
+5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
 6. Continue a closed session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Use this to ask for fixes or additional features that would benefit from the context of a closed session.
 
