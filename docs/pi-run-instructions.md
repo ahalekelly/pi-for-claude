@@ -32,7 +32,7 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 7. To accept the work, run `pi-run merge <session>` — it rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch.
 
-8. Discard unwanted work with `pi-run discard <session>` (never just delete the worktree directory). Once a worktree is deleted with `merge` or `discard`, the session cannot be resumed, but its logs remain available under `.agents/sessions/`.
+8. Discard unwanted work with `pi-run discard <session>` (never just delete the worktree directory). Once a worktree is deleted with `merge` or `discard`, the session cannot be resumed, but its timestamp-prefixed logs remain available under `.agents/sessions/`.
 
 ## In-place workflow
 

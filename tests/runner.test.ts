@@ -1,15 +1,29 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 
 import { mainCheckout, sessionIdFromPlan } from "../src/runner.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+const createdAt = "2026-01-01T00:00:00.000Z";
+const createdAtPrefix = "2026-01-01T00-00-00-000Z";
+
+function fixedSessionPath(sessions: string, id: string): string {
+  return join(sessions, `${createdAtPrefix}-${id}.pi-run.json`);
+}
+
+function sessionArtifact(sessions: string, id: string, extension: "pi-run.json" | "log"): string {
+  const pattern = new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-(.+)\\.${extension.replace(".", "\\.")}$`);
+  const files = readdirSync(sessions).filter((file) => pattern.exec(file)?.[1] === id);
+  assert.equal(files.length, 1);
+  return join(sessions, files[0]!);
 }
 
 test("mainCheckout resolves the shared checkout from a linked worktree", () => {
@@ -289,7 +303,12 @@ test("run edits a non-git project in place and discard preserves its files", () 
   });
 
   const sessions = join(root, ".agents/sessions");
-  const record = JSON.parse(readFileSync(join(sessions, "change.pi-run.json"), "utf8"));
+  const recordPath = sessionArtifact(sessions, "change", "pi-run.json");
+  const logPath = sessionArtifact(sessions, "change", "log");
+  const record = JSON.parse(readFileSync(recordPath, "utf8"));
+  const prefix = record.createdAt.replaceAll(":", "-").replaceAll(".", "-");
+  assert.equal(basename(recordPath), `${prefix}-change.pi-run.json`);
+  assert.equal(basename(logPath), `${prefix}-change.log`);
   assert.match(output, /Implemented in place\./);
   assert.equal(record.kind, "in-place");
   assert.equal(record.worktree, realpathSync(root));
@@ -298,7 +317,7 @@ test("run edits a non-git project in place and discard preserves its files", () 
   assert.equal(existsSync(join(root, ".agents/worktrees/change")), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "change"], { encoding: "utf8", cwd: root }), "Implemented in place.\n");
   assert.match(execFileSync(process.execPath, [cli, "discard", "change"], { encoding: "utf8", cwd: root }), /Discarded 'change'/);
-  assert.equal(existsSync(join(sessions, "change.pi-run.json")), false);
+  assert.equal(existsSync(recordPath), false);
   assert.equal(readFileSync(join(root, "implemented.txt"), "utf8"), "implemented\n");
 });
 
@@ -317,7 +336,8 @@ test("run in a git project creates no branch or worktree", () => {
     },
   });
 
-  const record = JSON.parse(readFileSync(join(root, ".agents/sessions/change.pi-run.json"), "utf8"));
+  const sessions = join(root, ".agents/sessions");
+  const record = JSON.parse(readFileSync(sessionArtifact(sessions, "change", "pi-run.json"), "utf8"));
   assert.equal(record.kind, "in-place");
   assert.equal(record.worktree, realpathSync(root));
   assert.equal(git(root, "branch", "--list", "pi/change"), "");
@@ -329,14 +349,14 @@ test("resume rejects a review session", () => {
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   writeFileSync(
-    join(sessions, "review-1.pi-run.json"),
+    fixedSessionPath(sessions, "review-1"),
     JSON.stringify({
       kind: "review",
       id: "review-1",
       command: "review",
       mainCheckout: root,
       worktree: root,
-      createdAt: "2026-01-01T00:00:00.000Z",
+      createdAt,
     }),
   );
 
@@ -347,6 +367,70 @@ test("resume rejects a review session", () => {
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /read-only review session and cannot be resumed/);
+});
+
+test("plain session ids reject duplicate timestamped metadata", () => {
+  const root = scratchRepo("pi-run-duplicate-session-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const record = {
+    kind: "review",
+    id: "duplicate",
+    command: "review",
+    mainCheckout: root,
+    worktree: root,
+    createdAt,
+  };
+  writeFileSync(fixedSessionPath(sessions, record.id), JSON.stringify(record));
+  writeFileSync(join(sessions, "2026-01-02T00-00-00-000Z-duplicate.pi-run.json"), JSON.stringify({ ...record, createdAt: "2026-01-02T00:00:00.000Z" }));
+
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const listed = spawnSync(process.execPath, [cli, "sessions"], { encoding: "utf8", cwd: root });
+  assert.equal(listed.status, 1);
+  assert.match(listed.stderr, /Found 2 metadata files for session 'duplicate'/);
+
+  const result = spawnSync(process.execPath, [cli, "discard", record.id], {
+    encoding: "utf8",
+    cwd: root,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Found 2 metadata files for session 'duplicate'/);
+});
+
+test("plain session ids do not match a longer hyphenated id", () => {
+  const root = scratchRepo("pi-run-exact-session-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    fixedSessionPath(sessions, "fix-auth"),
+    JSON.stringify({ kind: "review", id: "fix-auth", command: "review", mainCheckout: root, worktree: root, createdAt }),
+  );
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "discard", "auth"], {
+    encoding: "utf8",
+    cwd: root,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown session 'auth'/);
+  assert.equal(existsSync(fixedSessionPath(sessions, "fix-auth")), true);
+});
+
+test("session metadata requires a real canonical timestamp", () => {
+  const root = scratchRepo("pi-run-invalid-timestamp-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const path = join(sessions, "2026-99-99T99-99-99-999Z-invalid.pi-run.json");
+  writeFileSync(
+    path,
+    JSON.stringify({ kind: "review", id: "invalid", command: "review", mainCheckout: root, worktree: root, createdAt: "2026-99-99T99:99:99.999Z" }),
+  );
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "discard", "invalid"], {
+    encoding: "utf8",
+    cwd: root,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Malformed session metadata/);
 });
 
 test("implement-in-worktree requires git", () => {
@@ -367,7 +451,7 @@ test("failures before and during a run fail fast without burning the session id"
   const piRunHome = makePiRunHome(root);
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
   const worktree = join(root, ".agents/worktrees/plan");
-  const sessionFile = join(root, ".agents/sessions/plan.pi-run.json");
+  const sessions = join(root, ".agents/sessions");
   const run = (env: Record<string, string>, ...args: string[]) =>
     spawnSync(process.execPath, [cli, "implement-in-worktree", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
 
@@ -381,7 +465,7 @@ test("failures before and during a run fail fast without burning the session id"
   assert.equal(missingAttachment.status, 1);
   assert.match(missingAttachment.stderr, /Attachment file does not exist/);
   assert.equal(existsSync(worktree), false);
-  assert.equal(existsSync(sessionFile), false);
+  assert.equal(readdirSync(sessions).some((file) => file.endsWith("-plan.pi-run.json")), false);
 
   const crashPi = join(root, "crash-pi.mjs");
   writeFileSync(crashPi, `#!/usr/bin/env node\nprocess.stderr.write("boom\\n");\nprocess.exit(2);\n`);
@@ -537,9 +621,9 @@ test("resume refuses a session whose conversation log is missing", () => {
     branch: "pi/lost",
     baseCommit: git(root, "rev-parse", "HEAD"),
     mergeState: { kind: "unrebased" },
-    createdAt: "2026-01-01T00:00:00.000Z",
+    createdAt,
   };
-  writeFileSync(join(sessions, "lost.pi-run.json"), JSON.stringify(record));
+  writeFileSync(fixedSessionPath(sessions, "lost"), JSON.stringify(record));
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
   const resume = spawnSync(process.execPath, [cli, "resume", "lost", "keep going"], {
@@ -562,14 +646,15 @@ test("watch warns once when a live run's log goes silent", async () => {
     command: "review",
     mainCheckout: root,
     worktree: root,
-    createdAt: "2026-01-01T00:00:00.000Z",
+    createdAt,
   };
-  const recordPath = join(sessions, "s1.pi-run.json");
+  const recordPath = fixedSessionPath(sessions, "s1");
   writeFileSync(recordPath, JSON.stringify(record));
   writeFileSync(join(sessions, "s1.ctl"), "");
-  writeFileSync(join(sessions, "s1.log"), "events\n");
+  const logPath = join(sessions, `${createdAtPrefix}-s1.log`);
+  writeFileSync(logPath, "events\n");
   const staleTime = new Date(Date.now() - 10 * 60 * 1000);
-  utimesSync(join(sessions, "s1.log"), staleTime, staleTime);
+  utimesSync(logPath, staleTime, staleTime);
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
   const child = spawn(process.execPath, [cli, "watch", "s1"], { cwd: root });
@@ -592,7 +677,7 @@ test("watch warns once when a live run's log goes silent", async () => {
     assert.match(stdout, /Last event: events/, "the warning quotes the log's last line");
 
     const stalerTime = new Date(Date.now() - 16 * 60 * 1000);
-    utimesSync(join(sessions, "s1.log"), stalerTime, stalerTime);
+    utimesSync(logPath, stalerTime, stalerTime);
     await waitForWarnings(2);
 
     rmSync(recordPath);
@@ -614,14 +699,15 @@ test("discard removes a review session's record without touching git", () => {
     command: "review",
     mainCheckout: root,
     worktree: root,
-    createdAt: "2026-01-01T00:00:00.000Z",
+    createdAt,
   };
-  writeFileSync(join(sessions, "review-1.pi-run.json"), JSON.stringify(record));
+  const recordPath = fixedSessionPath(sessions, "review-1");
+  writeFileSync(recordPath, JSON.stringify(record));
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
   const output = execFileSync(process.execPath, [cli, "discard", "review-1"], { encoding: "utf8", cwd: root });
   assert.match(output, /Discarded 'review-1'/);
-  assert.equal(existsSync(join(sessions, "review-1.pi-run.json")), false);
+  assert.equal(existsSync(recordPath), false);
   assert.equal(git(root, "status", "--porcelain"), "");
 });
 
@@ -635,9 +721,9 @@ test("watch prints each question once and exits when the session ends", async ()
     command: "review",
     mainCheckout: root,
     worktree: root,
-    createdAt: "2026-01-01T00:00:00.000Z",
+    createdAt,
   };
-  const recordPath = join(sessions, "w1.pi-run.json");
+  const recordPath = fixedSessionPath(sessions, "w1");
   writeFileSync(recordPath, JSON.stringify(record));
   const question = join(sessions, "w1.question.md");
   const answer = join(realpathSync(root), ".agents/sessions", "w1.answer.md");

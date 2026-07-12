@@ -16,6 +16,7 @@
   "discarded": "Discarded '$id'.",
   "duplicate-injection": "Duplicate injection '$name'",
   "duplicate-prompt-field": "Duplicate prompt field '$field'",
+  "duplicate-session-metadata": "Found $count metadata files for session '$id'",
   "error-prefix": "pi-run: $message",
   "expected-one-jsonl": "Expected one Pi JSONL for session '$id', found $count",
   "failed-response-no-error": "Failed $context response must contain an error",

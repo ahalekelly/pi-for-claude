@@ -53,8 +53,21 @@ function sessionDirs(project: string) {
   return { main, sessions, worktrees };
 }
 
+function sessionPrefix(session: SessionFields): string {
+  return `${session.createdAt.replaceAll(":", "-").replaceAll(".", "-")}-${session.id}`;
+}
+
+function findSessionPath(sessions: string, id: string): string | undefined {
+  const pattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-(.+)\.pi-run\.json$/;
+  const files = readdirSync(sessions).filter((file) => pattern.exec(file)?.[1] === id);
+  if (files.length > 1) fail(msg("duplicate-session-metadata", { id, count: String(files.length) }));
+  return files[0] ? join(sessions, files[0]) : undefined;
+}
+
 function sessionPath(sessions: string, id: string): string {
-  return join(sessions, `${id}.pi-run.json`);
+  const path = findSessionPath(sessions, id);
+  if (!path) fail(msg("unknown-session", { id }));
+  return path;
 }
 
 function piSessionFiles(sessions: string, id: string): string[] {
@@ -77,34 +90,48 @@ function sessionResult(sessions: string, id: string): string {
   fail(msg("no-assistant-response", { id }));
 }
 
-function readSession(sessions: string, id: string): Session {
-  const path = sessionPath(sessions, id);
-  if (!existsSync(path)) fail(msg("unknown-session", { id }));
+function readSessionFile(path: string): Session {
   const value: unknown = JSON.parse(readFileSync(path, "utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(msg("malformed-session-metadata", { path }));
   const record = value as Record<string, unknown>;
   const common = ["id", "command", "mainCheckout", "worktree", "createdAt"];
-  if (common.some((field) => typeof record[field] !== "string") || record.id !== id) fail(msg("malformed-session-metadata", { path }));
+  if (common.some((field) => typeof record[field] !== "string")) fail(msg("malformed-session-metadata", { path }));
   const hasOnly = (fields: string[]) => Object.keys(record).every((key) => fields.includes(key));
-  if (record.kind === "in-place" && hasOnly([...common, "kind"])) return record as Session;
-  if (record.kind === "review" && hasOnly([...common, "kind"])) return record as Session;
-  if (record.kind !== "worktree" || typeof record.baseCommit !== "string" || typeof record.branch !== "string") {
+  let session: Session;
+  if (record.kind === "in-place" && hasOnly([...common, "kind"])) session = record as Session;
+  else if (record.kind === "review" && hasOnly([...common, "kind"])) session = record as Session;
+  else {
+    if (record.kind !== "worktree" || typeof record.baseCommit !== "string" || typeof record.branch !== "string") {
+      fail(msg("malformed-session-metadata", { path }));
+    }
+    const mergeState = record.mergeState;
+    if (!mergeState || typeof mergeState !== "object" || Array.isArray(mergeState)) fail(msg("malformed-session-metadata", { path }));
+    const state = mergeState as Record<string, unknown>;
+    const validState =
+      (state.kind === "unrebased" && Object.keys(state).length === 1) ||
+      (state.kind === "rebased" && typeof state.onto === "string" && Object.keys(state).length === 2);
+    if (!validState || !hasOnly([...common, "kind", "baseCommit", "branch", "mergeState"])) {
+      fail(msg("malformed-session-metadata", { path }));
+    }
+    session = record as Session;
+  }
+  const timestamp = Date.parse(session.createdAt);
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(session.id) || Number.isNaN(timestamp) || new Date(timestamp).toISOString() !== session.createdAt) {
     fail(msg("malformed-session-metadata", { path }));
   }
-  const mergeState = record.mergeState;
-  if (!mergeState || typeof mergeState !== "object" || Array.isArray(mergeState)) fail(msg("malformed-session-metadata", { path }));
-  const state = mergeState as Record<string, unknown>;
-  const validState =
-    (state.kind === "unrebased" && Object.keys(state).length === 1) ||
-    (state.kind === "rebased" && typeof state.onto === "string" && Object.keys(state).length === 2);
-  if (!validState || !hasOnly([...common, "kind", "baseCommit", "branch", "mergeState"])) {
-    fail(msg("malformed-session-metadata", { path }));
-  }
-  return record as Session;
+  if (basename(path) !== `${sessionPrefix(session)}.pi-run.json`) fail(msg("malformed-session-metadata", { path }));
+  return session;
+}
+
+function readSession(sessions: string, id: string): Session {
+  const path = sessionPath(sessions, id);
+  const session = readSessionFile(path);
+  if (session.id !== id) fail(msg("malformed-session-metadata", { path }));
+  return session;
 }
 
 function writeSession(sessions: string, session: Session): void {
-  writeFileSync(sessionPath(sessions, session.id), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(sessions, `${sessionPrefix(session)}.pi-run.json`), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
 }
 
 function parseFlags(values: string[]): Flags {
@@ -196,7 +223,7 @@ function handbackBlocker(worktree: string): string {
 }
 
 async function rpcRun(session: Session, sessions: string, command: PromptCommand, prompt: string, model: string, thinking: string): Promise<string> {
-  const log = join(sessions, `${session.id}.log`);
+  const log = join(sessions, `${sessionPrefix(session)}.log`);
   const control = join(sessions, `${session.id}.ctl`);
   if (Buffer.byteLength(control) > 103) fail(msg("control-socket-too-long", { path: control }));
   if (existsSync(control)) {
@@ -451,7 +478,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (!plan) fail(msg("requires-plan-file", { name }));
     if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
     const id = sessionIdFromPlan(plan);
-    if (existsSync(sessionPath(dirs.sessions, id))) fail(msg("session-already-exists", { id }));
+    if (findSessionPath(dirs.sessions, id)) fail(msg("session-already-exists", { id }));
     // A merged or discarded session leaves its conversation JSONL behind, which
     // permanently reserves the name; only "resume it" would be a lie here.
     if (piSessionFiles(dirs.sessions, id).length > 0) fail(msg("session-name-burned", { id }));
@@ -484,7 +511,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     writeSession(dirs.sessions, session);
   } else {
     let worktree = project;
-    if (flags.args[0] && existsSync(sessionPath(dirs.sessions, flags.args[0]))) {
+    if (flags.args[0] && findSessionPath(dirs.sessions, flags.args[0])) {
       const target = readSession(dirs.sessions, flags.args[0]);
       worktree = target.worktree;
       promptArgs = flags.args.slice(1);
@@ -541,7 +568,12 @@ function listSessions(project: string): void {
   const { sessions } = sessionDirs(project);
   const records = readdirSync(sessions)
     .filter((file) => file.endsWith(".pi-run.json"))
-    .map((file) => readSession(sessions, file.slice(0, -".pi-run.json".length)));
+    .map((file) => readSessionFile(join(sessions, file)));
+  const duplicate = records.find((record) => records.filter((candidate) => candidate.id === record.id).length > 1);
+  if (duplicate) {
+    const count = records.filter((record) => record.id === duplicate.id).length;
+    fail(msg("duplicate-session-metadata", { id: duplicate.id, count: String(count) }));
+  }
   for (const record of records.sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
     process.stdout.write(`${record.id}\t${record.command}\t${record.worktree}\n`);
   }
@@ -625,11 +657,11 @@ function logTail(path: string): string {
 // consult is expected (pi blocks on the answer file) and never counts.
 async function watch(project: string, id: string): Promise<void> {
   const { sessions } = sessionDirs(project);
-  readSession(sessions, id);
+  const session = readSession(sessions, id);
   const record = sessionPath(sessions, id);
   const question = join(sessions, `${id}.question.md`);
   const control = join(sessions, `${id}.ctl`);
-  const log = join(sessions, `${id}.log`);
+  const log = join(sessions, `${sessionPrefix(session)}.log`);
   const stallMs = 5 * 60 * 1000;
   // Warns at every full stall interval of silence (5, 10, 15... minutes), so an
   // unattended hang keeps resurfacing instead of trusting one missed warning.
