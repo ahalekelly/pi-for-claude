@@ -18,7 +18,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    
 4. While the subagent is running you can also redirect it with `steer`, `queue`, and `interrupt`.
 
-5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch, and the output of `git log --oneline --no-decorate "$main_branch..HEAD"` and `git diff --stat "$main_branch...HEAD"` will be appended to Pi's response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
+5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response, each command shown with its output. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
 6. Continue a closed session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Use this to ask for fixes or additional features that would benefit from the context of a closed session.
 
