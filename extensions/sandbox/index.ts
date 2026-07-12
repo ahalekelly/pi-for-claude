@@ -10,13 +10,19 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { SandboxManager, type SandboxRuntimeConfig } from "@sysid/sandbox-runtime-improved";
 
+import { renderString } from "../../src/core.ts";
 import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.ts";
 
 type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
 
+const stringsPath = join(import.meta.dirname, "../..", "prompts", "strings.json");
+function msg(name: string, injections: Record<string, string> = {}): string {
+  return renderString(stringsPath, name, injections);
+}
+
 function stringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry)) {
-    throw new Error(`Sandbox field '${field}' must be an array of non-empty strings`);
+    throw new Error(msg("sandbox-field-not-string-array", { field }));
   }
   return value;
 }
@@ -24,16 +30,16 @@ function stringArray(value: unknown, field: string): string[] {
 function loadPolicy(readOnly: boolean): Policy {
   const path = join(import.meta.dirname, "sandbox.json");
   const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Malformed sandbox policy: ${path}`);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(msg("malformed-sandbox-policy", { path }));
   const source = value as Record<string, unknown>;
-  if (!Object.keys(source).every((key) => key === "network" || key === "filesystem")) throw new Error(`Unknown sandbox policy field: ${path}`);
-  if (!source.network || typeof source.network !== "object" || Array.isArray(source.network)) throw new Error(`Malformed sandbox network policy: ${path}`);
-  if (!source.filesystem || typeof source.filesystem !== "object" || Array.isArray(source.filesystem)) throw new Error(`Malformed sandbox filesystem policy: ${path}`);
+  if (!Object.keys(source).every((key) => key === "network" || key === "filesystem")) throw new Error(msg("unknown-sandbox-policy-field", { path }));
+  if (!source.network || typeof source.network !== "object" || Array.isArray(source.network)) throw new Error(msg("malformed-sandbox-network-policy", { path }));
+  if (!source.filesystem || typeof source.filesystem !== "object" || Array.isArray(source.filesystem)) throw new Error(msg("malformed-sandbox-filesystem-policy", { path }));
   const network = source.network as Record<string, unknown>;
   const filesystem = source.filesystem as Record<string, unknown>;
-  if (!Object.keys(network).every((key) => key === "allowedDomains" || key === "deniedDomains")) throw new Error(`Unknown sandbox network field: ${path}`);
+  if (!Object.keys(network).every((key) => key === "allowedDomains" || key === "deniedDomains")) throw new Error(msg("unknown-sandbox-network-field", { path }));
   if (!Object.keys(filesystem).every((key) => key === "denyRead" || key === "allowWrite" || key === "denyWrite")) {
-    throw new Error(`Unknown sandbox filesystem field: ${path}`);
+    throw new Error(msg("unknown-sandbox-filesystem-field", { path }));
   }
   return {
     network: {
@@ -58,7 +64,7 @@ function loadPolicy(readOnly: boolean): Policy {
 function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
   const out = (args: string[]): string => {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-    if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(" ")} failed`);
+    if (result.status !== 0) throw new Error(result.stderr.trim() || msg("git-command-failed", { args: args.join(" ") }));
     return result.stdout.trim();
   };
   const gitDir = out(["rev-parse", "--path-format=absolute", "--git-dir"]);
@@ -85,7 +91,7 @@ function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
 function sandboxedBash(): BashOperations {
   return {
     async exec(command, cwd, { onData, signal, timeout }) {
-      if (!existsSync(cwd)) throw new Error(`Working directory does not exist: ${cwd}`);
+      if (!existsSync(cwd)) throw new Error(msg("cwd-does-not-exist", { cwd }));
       const wrapped = await SandboxManager.wrapWithSandbox(command);
       return await new Promise((resolve, reject) => {
         const child = spawn("bash", ["-c", wrapped], { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -104,8 +110,8 @@ function sandboxedBash(): BashOperations {
         child.once("close", (code) => {
           if (timer) clearTimeout(timer);
           signal?.removeEventListener("abort", abort);
-          if (signal?.aborted) reject(new Error("Sandboxed command aborted"));
-          else if (timedOut) reject(new Error(`Sandboxed command timed out after ${timeout} seconds`));
+          if (signal?.aborted) reject(new Error(msg("sandboxed-command-aborted")));
+          else if (timedOut) reject(new Error(msg("sandboxed-command-timeout", { seconds: String(timeout) })));
           else resolve({ exitCode: code });
         });
       });
@@ -117,7 +123,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   const cwd = process.cwd();
   const localBash = createBashTool(cwd);
   const mode = process.env.PI_RUN_SANDBOX_MODE;
-  if (mode !== "worktree-write" && mode !== "read-only") throw new Error("PI_RUN_SANDBOX_MODE must be worktree-write or read-only");
+  if (mode !== "worktree-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
   const readOnly = mode === "read-only";
   const policy = loadPolicy(readOnly);
   const gitPaths = readOnly ? { allow: [], deny: [] } : gitPolicyPaths(cwd);
@@ -130,14 +136,14 @@ export default function sandboxExtension(pi: ExtensionAPI) {
     ...localBash,
     label: "bash (sandboxed)",
     async execute(id, params, signal, onUpdate) {
-      if (state === "failed") throw new Error("Sandbox initialization failed; bash is blocked");
-      if (state === "starting") throw new Error("Sandbox has not initialized; bash is blocked");
+      if (state === "failed") throw new Error(msg("sandbox-init-failed-blocked"));
+      if (state === "starting") throw new Error(msg("sandbox-not-initialized-blocked"));
       return createBashTool(cwd, { operations: sandboxedBash() }).execute(id, params, signal, onUpdate);
     },
   });
 
   pi.on("user_bash", () => {
-    if (state !== "ready") throw new Error("Sandbox is unavailable; bash is blocked");
+    if (state !== "ready") throw new Error(msg("sandbox-unavailable-blocked"));
     return { operations: sandboxedBash() };
   });
 
@@ -158,10 +164,10 @@ export default function sandboxExtension(pi: ExtensionAPI) {
     try {
       await SandboxManager.initialize(policy);
       state = "ready";
-      ctx.ui.notify(`Sandbox initialized in ${mode} mode`, "info");
+      ctx.ui.notify(msg("sandbox-initialized", { mode }), "info");
     } catch (error) {
       state = "failed";
-      ctx.ui.notify(`Sandbox initialization failed; bash is blocked: ${error instanceof Error ? error.message : error}`, "error");
+      ctx.ui.notify(msg("sandbox-init-failed-notify", { error: error instanceof Error ? error.message : String(error) }), "error");
     }
   });
 

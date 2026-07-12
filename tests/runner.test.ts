@@ -48,7 +48,7 @@ function scratchRepo(prefix: string): string {
 function makePiRunHome(root: string): string {
   const piRunHome = join(root, "pi-run-home");
   mkdirSync(join(piRunHome, "prompts"), { recursive: true });
-  cpSync(join(import.meta.dirname, "../prompts/messages"), join(piRunHome, "prompts/messages"), { recursive: true });
+  cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(piRunHome, "prompts/strings.json"));
   writeFileSync(join(piRunHome, "models.json"), '{"default":"openai-codex/gpt-test"}\n');
   writeFileSync(
     join(piRunHome, "prompts", "run.md"),

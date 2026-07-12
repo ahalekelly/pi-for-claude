@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { renderString } from "../src/core.ts";
+
 const timeoutMs = 10 * 60 * 1000;
+const stringsPath = join(import.meta.dirname, "..", "prompts", "strings.json");
+function msg(name: string, injections: Record<string, string> = {}): string {
+  return renderString(stringsPath, name, injections);
+}
 
 export default function consultExtension(pi: ExtensionAPI) {
   pi.registerTool(
@@ -16,10 +22,10 @@ export default function consultExtension(pi: ExtensionAPI) {
       async execute(_id, { question }, signal) {
         const sessionDir = process.env.PI_RUN_SESSION_DIR;
         const sessionId = process.env.PI_RUN_SESSION_ID;
-        if (!sessionDir || !sessionId) throw new Error("Consult requires PI_RUN_SESSION_DIR and PI_RUN_SESSION_ID");
+        if (!sessionDir || !sessionId) throw new Error(msg("consult-requires-env"));
         const questionPath = join(sessionDir, `${sessionId}.question.md`);
         const answerPath = join(sessionDir, `${sessionId}.answer.md`);
-        if (existsSync(questionPath) || existsSync(answerPath)) throw new Error(`A consult is already pending for '${sessionId}'`);
+        if (existsSync(questionPath) || existsSync(answerPath)) throw new Error(msg("consult-already-pending", { id: sessionId }));
         writeFileSync(questionPath, `${question.trim()}\n`, { mode: 0o600 });
         const deadline = Date.now() + timeoutMs;
 
@@ -28,12 +34,11 @@ export default function consultExtension(pi: ExtensionAPI) {
         }
         if (signal?.aborted) {
           rmSync(questionPath, { force: true });
-          throw new Error("Consult aborted");
+          throw new Error(msg("consult-aborted"));
         }
         if (!existsSync(answerPath)) {
           rmSync(questionPath, { force: true });
-          const timeoutMessage = readFileSync(join(import.meta.dirname, "..", "prompts", "messages", "consult-timeout.md"), "utf8").trim();
-          return { content: [{ type: "text", text: timeoutMessage }], details: {} };
+          return { content: [{ type: "text", text: msg("consult-timeout") }], details: {} };
         }
         const answer = readFileSync(answerPath, "utf8").trim();
         rmSync(questionPath);

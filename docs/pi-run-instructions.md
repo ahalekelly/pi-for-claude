@@ -22,13 +22,13 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    - `pi-run queue <session> "<message>"` — queued until the current agent task finishes
    - `pi-run interrupt <session>` — abort the active turn; the session stays resumable
 
-5. When it completes, read the final response and review the session's work — pi finishes with everything committed on its private branch (usually one commit), so diff the worktree branch against main. The runner already bounced pi once if it tried to hand back a dirty tree or unfinished rebase; if the output ends with a handback WARNING, resolve the leftover state in the worktree or resume the session before merging. Examine it for issues, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
+5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch, and the output of `git log --oneline --no-decorate "$main_branch..HEAD"` and `git diff --stat "$main_branch...HEAD"` will be appended to Pi's response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
-6. To make changes, use `pi-run resume <session> "<message>"` to ask for further edits, or for minor edits you can edit the worktree files yourself (`queue` only works while a run is still active)
+6. Use `pi-run resume <session> "<instructions>"` to ask for further edits, or for minor edits you can edit the worktree files yourself. (`queue` only works while a run is still active)
 
 7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and removes the worktree and branch. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
 
-   If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume-and-resolve-merge <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
+   If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
 
 8. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Discard a session's worktree with `pi-run discard <session>` (never just delete the worktree directory).
 
