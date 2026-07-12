@@ -6,7 +6,7 @@ Handoff doc for building `pi-run`: a deterministic delegation runner that sends 
 
 - `codex-task` (wrapper around `codex exec` via a fork of openai/codex-plugin-cc, `~/Git/codex-plugin-cc`) is the current delegation tool. It stays installed and working as the escape hatch, and the build session should use it to delegate implementation work per Model Routing rules. Its doc lives at `~/Git/codex-plugin-cc/bin/codex-task.md` and is @-included by CLAUDE.md's "Codex Implementation Delegation" section; only after pi-run is confirmed working on real tasks does that include get replaced by pi-run's doc (see Deliverables).
 - Why pi: native mid-task steering over RPC, caller-chosen session names, ChatGPT-subscription billing (openai-codex provider), provider-agnostic for future models, and no fork of a moving upstream to maintain.
-- Agent config is version-controlled through a detached git dir: `git --git-dir=$HOME/Git/agent-config.git --work-tree=$HOME` (work tree is $HOME; it tracks `.agents/`, `.claude/`, `.codex/`, `.zprofile`; untracked files are hidden in status, add new files explicitly). `~/.agents/pi-run/` including this plan should be added and committed there. Never add `secrets.env`.
+- Agent config is version-controlled in a normal repo at `~/.agents` (`git -C "$HOME/.agents"`, alias `git-agent-cfg`). Home dotfiles like `~/.claude` and `~/.zshrc` live under `~/.agents/home/` with symlinks from `$HOME`. The `.gitignore` is a whitelist (`*`), so new files must be added explicitly with `git add -f`. `~/.agents/pi-run/` including this plan is committed there. Never add `secrets.env`.
 
 ## Verified facts (pi 0.80.3)
 
@@ -77,7 +77,7 @@ $plan
 1. The runner, prompts, extensions, and sandbox config in `~/.agents/pi-run/`, on PATH.
 2. `~/.agents/pi-run/docs/pi-run.md` — user-facing workflow doc (equivalent of the codex-task doc): the run→review→commit→merge workflow, command reference, flags, model labels, merge-conflict method, rebase policy, steering and consult usage.
 3. Only after pi-run is confirmed working on real tasks (verification list below passed, plus at least one real delegated implementation reviewed and merged): replace CLAUDE.md's "Codex Implementation Delegation" section — currently `@~/Git/codex-plugin-cc/bin/codex-task.md` — with `@~/.agents/pi-run/docs/pi-run.md`. Until then codex-task remains the documented delegation path.
-4. Commit `~/.agents/pi-run/` to the agent-config repo (`git --git-dir=$HOME/Git/agent-config.git --work-tree=$HOME add`); never add `secrets.env`.
+4. Commit `~/.agents/pi-run/` to the agent-config repo (`git -C "$HOME/.agents" add -f`); never add `secrets.env`.
 
 ## Verification (end-to-end, in a scratch git repo)
 
