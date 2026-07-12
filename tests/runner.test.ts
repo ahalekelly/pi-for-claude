@@ -126,15 +126,20 @@ process.stdin.on("data", chunk => {
   git(root, "add", "README.md");
   git(root, "commit", "-m", "Move main");
 
-  const noMessage = spawnSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root });
-  assert.equal(noMessage.status, 1);
-  assert.match(noMessage.stderr, /merge requires a commit message/);
+  const dirty = spawnSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root });
+  assert.equal(dirty.status, 1);
+  assert.match(dirty.stderr, /uncommitted changes/);
 
-  const conflicted = spawnSync(process.execPath, [cli, "merge", "fix-auth", "Fix auth flow"], { encoding: "utf8", cwd: root });
+  git(worktree, "add", "auth.txt");
+  git(worktree, "commit", "-m", "Fix auth flow");
+  git(worktree, "add", "README.md");
+  git(worktree, "commit", "-m", "Handle session change");
+
+  const conflicted = spawnSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root });
   assert.equal(conflicted.status, 1);
   assert.match(conflicted.stderr, /Rebase stopped with conflicts in:\nREADME.md/);
 
-  const midRebase = spawnSync(process.execPath, [cli, "merge", "fix-auth", "Fix auth flow"], { encoding: "utf8", cwd: root });
+  const midRebase = spawnSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root });
   assert.equal(midRebase.status, 1);
   assert.match(midRebase.stderr, /rebase in progress/);
 
@@ -142,11 +147,11 @@ process.stdin.on("data", chunk => {
   git(worktree, "add", "README.md");
   git(worktree, "-c", "core.editor=true", "rebase", "--continue");
 
-  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth", "Fix auth flow"], { encoding: "utf8", cwd: root }), /Re-run verification/);
-  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth", "Fix auth flow"], { encoding: "utf8", cwd: root }), /Merged 'fix-auth'/);
+  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root }), /Re-run verification/);
+  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root }), /Merged 'fix-auth'/);
   assert.equal(readFileSync(join(root, "auth.txt"), "utf8"), "fixed\n");
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "resolved\n");
-  assert.equal(git(root, "log", "-1", "--format=%s"), "Fix auth flow");
+  assert.equal(git(root, "log", "-1", "--format=%B"), "Fix auth flow\n\nHandle session change");
   assert.equal(git(root, "rev-list", "--count", "HEAD"), "3", "main gains exactly one commit for the whole session");
   assert.equal(existsSync(worktree), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");

@@ -13,7 +13,7 @@ output-append: |
 ---
 Implement the plan below. It is also on disk at $plan_path if you need to re-read it later.
 
-You are in a git worktree on a private session branch. You may use git on this branch — stage, commit, rebase — but never push, and never touch other branches or repository configuration. Check whether main has moved after making your changes and before verification, and rebase onto it if so; check again right before handing back. When your work is accepted, everything in the worktree that git doesn't ignore is squashed into one commit (via `git add -A`), so before finishing, delete any scratch files you created or add them to the project's `.gitignore` or `<main>/.git/info/exclude`.
+You are in a git worktree on a private session branch. Commit your work on this branch — never push, and never touch other branches or repository configuration. Check whether main has moved after making your changes and before verification, and rebase onto it if so; check again right before handing back. Finish with a clean tree and a single well-messaged commit (amend or soft-reset your own intermediate commits); the orchestrator fast-forwards your commit onto main verbatim, squashing only if you leave more than one. Delete any scratch files you created or add them to the project's `.gitignore` or `<main>/.git/info/exclude` — uncommitted leftovers block the merge.
 
 When done, summarize what you have done and any deviation from the plan.
 

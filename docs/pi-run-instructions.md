@@ -20,11 +20,11 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    - `pi-run queue <session> "<message>"` — queued until the current agent task finishes
    - `pi-run interrupt <session>` — abort the active turn; the session stays resumable
 
-5. When it completes, read the final response and the worktree diff (pi may have committed or rebased on its private branch; `merge` squashes everything either way). Examine the diff for issues, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
+5. When it completes, read the final response and review the session's commit — pi finishes with a single commit on its private branch, so diff the worktree branch against main. Examine it for issues, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
 6. To make changes, use `pi-run resume <session> "<message>"` to ask for further edits, or for minor edits you can edit the worktree files yourself (`queue` only works while a run is still active)
 
-7. To accept the edits, run `pi-run merge <session> "<commit message>"` — commits any uncommitted worktree changes, rebases onto the main checkout's current branch, squashes the whole session into a single commit with your message, fast-forwards main, and removes the worktree and branch. Each merged session lands as exactly one commit on main. Everything in the worktree that git doesn't ignore gets committed, so during review delete stray files or add them to `.gitignore` / `<main>/.git/info/exclude`.
+7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards main, and removes the worktree and branch. Pi's commit lands verbatim (multiple commits get squashed into one, keeping their messages), so each merged session is exactly one commit on main. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
 
    If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume-and-resolve-merge <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
 
@@ -43,7 +43,7 @@ Full pi-run command reference:
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles
 - `interrupt <session>` — abort the active turn; the session remains resumable
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends
-- `merge <session> <message>` — squash the session into one commit on main and clean up the worktree and branch
+- `merge <session>` — land the session as one commit on main and clean up the worktree and branch
 - `discard <session>` — force-remove the worktree and branch (review sessions: just the metadata record)
 - `help` — render prompt names, argument hints, and descriptions
 
