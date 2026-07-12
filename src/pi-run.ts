@@ -339,14 +339,13 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
             continue;
           }
           if (event.type === "agent_settled") {
-            if (state.kind === "has-result" && !abortRequested && checkHandback) {
+            // One correction round: bounce the first unclean handback back to
+            // pi; a second one settles anyway and runPrompt reports it to the
+            // orchestrator.
+            if (state.kind === "has-result" && !abortRequested && checkHandback && corrections === 0) {
               const blocker = handbackBlocker(session.worktree);
-              if (blocker && corrections === 1) {
-                failRun(new Error(`Session '${session.id}' cannot hand back cleanly after a reminder; resume it or clean up ${session.worktree}. Its last response is available via 'pi-run result'.`));
-                return;
-              }
               if (blocker) {
-                corrections += 1;
+                corrections = 1;
                 send({ type: "prompt", message: blocker });
                 continue;
               }
@@ -462,6 +461,12 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   const result = await rpcRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   process.stdout.write(`${result}\n`);
   if (command.outputAppend) process.stdout.write(`${shell(command.outputAppend, session.worktree)}\n`);
+  if (session.kind === "worktree" && command.sandbox === "worktree-write") {
+    const blocker = handbackBlocker(session.worktree);
+    if (blocker) {
+      process.stdout.write(`\nWARNING: the session did not hand back cleanly despite a reminder. Resolve in ${session.worktree} or resume the session.\n${blocker}\n`);
+    }
+  }
 }
 
 function control(project: string, id: string, type: "steer" | "follow_up" | "abort", message: string): Promise<void> {

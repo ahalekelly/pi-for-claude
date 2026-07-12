@@ -303,7 +303,7 @@ test("an unclean handback bounces back to pi until it merges cleanly", () => {
   assert.equal(git(worktree, "log", "-1", "--format=%s"), "Fix dirt");
 });
 
-test("a session that cannot hand back cleanly fails after one reminder", () => {
+test("a second unclean handback settles and reports the problem to the orchestrator", () => {
   const root = scratchRepo("pi-run-stubborn-");
   writeFileSync(join(root, "plan.md"), "Do the thing.\n");
   const piRunHome = makePiRunHome(root);
@@ -314,8 +314,10 @@ test("a session that cannot hand back cleanly fails after one reminder", () => {
     env: { ...process.env, PI_BIN: writeBouncePi(root), PI_RUN_HOME: piRunHome },
     timeout: 15000,
   });
-  assert.equal(run.status, 1);
-  assert.match(run.stderr, /cannot hand back cleanly after a reminder/);
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /Still dirty\./);
+  assert.match(run.stdout, /WARNING: the session did not hand back cleanly/);
+  assert.match(run.stdout, /dirt\.txt/);
 });
 
 test("discard removes a direct session's record without touching git", () => {
