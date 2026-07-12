@@ -20,8 +20,8 @@ export default function consultExtension(pi: ExtensionAPI) {
       description: "Ask the orchestrator a blocking implementation question and wait for its answer.",
       parameters: Type.Object({ question: Type.String({ minLength: 1 }) }),
       async execute(_id, { question }, signal) {
-        const sessionDir = process.env.PI_RUN_SESSION_DIR;
-        const sessionId = process.env.PI_RUN_SESSION_ID;
+        const sessionDir = process.env.PI_FOR_CLAUDE_SESSION_DIR;
+        const sessionId = process.env.PI_FOR_CLAUDE_SESSION_ID;
         if (!sessionDir || !sessionId) throw new Error(msg("consult-requires-env"));
         const questionPath = join(sessionDir, `${sessionId}.question.md`);
         const answerPath = join(sessionDir, `${sessionId}.answer.md`);

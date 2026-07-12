@@ -1,10 +1,10 @@
 # Live sandbox verification
 
-Run this against a clean checkout of `pi-run` after `npm ci`. It uses a real pi session and provider, so it is intentionally not part of `npm test`.
+Run this against a clean checkout of `pi-for-claude` after `npm ci`. It uses a real pi session and provider, so it is intentionally not part of `npm test`.
 
 ```sh
-cd /path/to/pi-run
-scratch=$(mktemp -d /tmp/pi-run-sandbox-live.XXXXXX)
+cd /path/to/pi-for-claude
+scratch=$(mktemp -d /tmp/pi-for-claude-sandbox-live.XXXXXX)
 git -C "$scratch" init -b main
 git -C "$scratch" config user.email sandbox@example.test
 git -C "$scratch" config user.name "Sandbox verification"
@@ -23,7 +23,7 @@ Run these bash tool calls individually, in this order. Continue after expected f
 Do not modify files or commit.
 EOF
 cd "$scratch"
-PI_BIN=pi PI_RUN_HOME=/path/to/pi-run node /path/to/pi-run/src/pi-run.ts implement-in-worktree sandbox-live.md
+PI_BIN=pi PI_FOR_CLAUDE_HOME=/path/to/pi-for-claude node /path/to/pi-for-claude/src/pi-for-claude.ts implement-in-worktree sandbox-live.md
 ```
 
 While the final `sleep 30` runs, inspect it from another terminal:

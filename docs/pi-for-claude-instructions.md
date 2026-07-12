@@ -1,6 +1,6 @@
-# pi-run
+# pi-for-claude
 
-Delegate tasks to GPT-5.6 in Pi with `pi-run`.
+Delegate tasks to GPT-5.6 in Pi with `pi-for-claude`.
 
 `implement-in-worktree` requires a git repository and creates a persistent worktree session under the main checkout's `.agents/`. `run` edits the project directory directly and also works without git. Commands must run inside the project directory. In a git repository, use `implement-in-worktree` when running multiple agents simultaneously, `run` is for non-git directories and single-subagent workflows.
 
@@ -10,10 +10,10 @@ Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 
    Plan length should be proportional to the task; 1/2th as many tokens as the expected diff is a rough prior.
 
-2. Launch the run in a persistent Monitor. Monitor runs outside the Bash sandbox, which gives pi provider access and lets pi-run create its local control socket:
+2. Launch the run in a persistent Monitor. Monitor runs outside the Bash sandbox, which gives pi provider access and lets pi-for-claude create its local control socket:
 
    ```js
-   Monitor({ command: "pi-run implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
+   Monitor({ command: "pi-for-claude implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
 3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in a user reply because the user cannot see Monitor event bodies.
@@ -22,21 +22,21 @@ Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 
 5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it. Keep the review from dirtying the worktree (use `npm ci`, not `npm install`), and while any session is in flight, avoid committing to files it is editing — queue changes into the session or hold them until after the merge. If `merge` refuses because the main checkout has uncommitted edits, `git stash` them, merge, then `git stash pop` — committing them mid-merge just creates the next rebase conflict.
 
-6. Continue a closed session by launching `pi-run resume <session> "<follow-up prompt>"` in a new persistent Monitor — same conversation and worktree. Use this for fixes or additional work that benefits from the prior context.
+6. Continue a closed session by launching `pi-for-claude resume <session> "<follow-up prompt>"` in a new persistent Monitor — same conversation and worktree. Use this for fixes or additional work that benefits from the prior context.
 
-7. To accept the work, run `pi-run merge <session>` — it rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch.
+7. To accept the work, run `pi-for-claude merge <session>` — it rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch.
 
-8. Discard unwanted work with `pi-run discard <session>` (never just delete the worktree directory). Once a worktree is deleted with `merge` or `discard`, the session cannot be resumed, but its timestamp-prefixed logs remain available under `.agents/sessions/`.
+8. Discard unwanted work with `pi-for-claude discard <session>` (never just delete the worktree directory). Once a worktree is deleted with `merge` or `discard`, the session cannot be resumed, but its timestamp-prefixed logs remain available under `.agents/sessions/`.
 
 ## In-place workflow
 
-1. Write the plan to `.agents/plans/<session>.md` in the project directory. In a non-git project, this directory is the project root and every pi-run command for the session must run there.
+1. Write the plan to `.agents/plans/<session>.md` in the project directory. In a non-git project, this directory is the project root and every pi-for-claude command for the session must run there.
 
-2. As above, launch `pi-run run .agents/plans/<session>.md` in a Monitor, and steer, queue, or interrupt the session as usual.
+2. As above, launch `pi-for-claude run .agents/plans/<session>.md` in a Monitor, and steer, queue, or interrupt the session as usual.
 
-3. When Pi finishes, the changes will be shown with `git status` and `git diff` if a git repo is available. Use `pi-run resume <session> "<follow-up prompt>"` for related changes.
+3. When Pi finishes, the changes will be shown with `git status` and `git diff` if a git repo is available. Use `pi-for-claude resume <session> "<follow-up prompt>"` for related changes.
 
-4. Run `pi-run discard <session>` to close the session. It removes only session metadata and leaves every project file in place; without a worktree there is no `merge` command.
+4. Run `pi-for-claude discard <session>` to close the session. It removes only session metadata and leaves every project file in place; without a worktree there is no `merge` command.
 
 ## Command reference
 
@@ -54,7 +54,7 @@ Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
-- `--model <label-or-id>` — override the prompt's model; labels come from the pi-run checkout's `models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
+- `--model <label-or-id>` — override the prompt's model; labels come from the pi-for-claude checkout's `models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
 - `--thinking <level>` — override the model label's default thinking level
 - `--base <ref>` — diff base for reviews
 - `--pre <file>` / `--post <file>` — prepend/append text files to the prompt; paths resolve from the current directory

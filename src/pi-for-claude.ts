@@ -32,7 +32,7 @@ type Flags = {
   base: string;
 };
 
-const home = resolve(process.env.PI_RUN_HOME ?? dirname(import.meta.dirname));
+const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
 const piBin = process.env.PI_BIN ?? "pi";
 
 function fail(message: string): never {
@@ -58,7 +58,7 @@ function sessionPrefix(session: SessionFields): string {
 }
 
 function findSessionPath(sessions: string, id: string): string | undefined {
-  const pattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-(.+)\.pi-run\.json$/;
+  const pattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-(.+)\.pi-for-claude\.json$/;
   const files = readdirSync(sessions).filter((file) => pattern.exec(file)?.[1] === id);
   if (files.length > 1) fail(msg("duplicate-session-metadata", { id, count: String(files.length) }));
   return files[0] ? join(sessions, files[0]) : undefined;
@@ -119,7 +119,7 @@ function readSessionFile(path: string): Session {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(session.id) || Number.isNaN(timestamp) || new Date(timestamp).toISOString() !== session.createdAt) {
     fail(msg("malformed-session-metadata", { path }));
   }
-  if (basename(path) !== `${sessionPrefix(session)}.pi-run.json`) fail(msg("malformed-session-metadata", { path }));
+  if (basename(path) !== `${sessionPrefix(session)}.pi-for-claude.json`) fail(msg("malformed-session-metadata", { path }));
   return session;
 }
 
@@ -131,7 +131,7 @@ function readSession(sessions: string, id: string): Session {
 }
 
 function writeSession(sessions: string, session: Session): void {
-  writeFileSync(join(sessions, `${sessionPrefix(session)}.pi-run.json`), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(sessions, `${sessionPrefix(session)}.pi-for-claude.json`), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
 }
 
 function parseFlags(values: string[]): Flags {
@@ -262,9 +262,9 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     cwd: session.worktree,
     env: {
       ...process.env,
-      PI_RUN_SANDBOX_MODE: command.sandbox,
-      PI_RUN_SESSION_DIR: sessions,
-      PI_RUN_SESSION_ID: session.id,
+      PI_FOR_CLAUDE_SANDBOX_MODE: command.sandbox,
+      PI_FOR_CLAUDE_SESSION_DIR: sessions,
+      PI_FOR_CLAUDE_SESSION_ID: session.id,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -292,7 +292,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
   let corrections = 0;
   const pending = new Map<string, (response: string) => void>();
   const send = (value: Record<string, unknown>): string => {
-    const id = `pi-run-${nextId++}`;
+    const id = `pi-for-claude-${nextId++}`;
     child.stdin.write(`${JSON.stringify({ id, ...value })}\n`);
     return id;
   };
@@ -608,7 +608,7 @@ function control(project: string, id: string, type: "steer" | "follow_up" | "abo
 function listSessions(project: string): void {
   const { sessions } = sessionDirs(project);
   const records = readdirSync(sessions)
-    .filter((file) => file.endsWith(".pi-run.json"))
+    .filter((file) => file.endsWith(".pi-for-claude.json"))
     .map((file) => readSessionFile(join(sessions, file)));
   const duplicate = records.find((record) => records.filter((candidate) => candidate.id === record.id).length > 1);
   if (duplicate) {

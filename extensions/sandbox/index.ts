@@ -121,7 +121,7 @@ function sandboxedBash(): BashOperations {
 export default function sandboxExtension(pi: ExtensionAPI) {
   const cwd = process.cwd();
   const localBash = createBashTool(cwd);
-  const mode = process.env.PI_RUN_SANDBOX_MODE;
+  const mode = process.env.PI_FOR_CLAUDE_SANDBOX_MODE;
   if (mode !== "worktree-write" && mode !== "project-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
   const readOnly = mode === "read-only";
   const policy = loadPolicy(readOnly);

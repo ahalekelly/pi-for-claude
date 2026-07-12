@@ -55,8 +55,8 @@ test("gitWrite grants scoped git paths without opening the rest of .git", () => 
 });
 
 test("write guard resolves an existing symlink before checking a new target", () => {
-  const worktree = mkdtempSync(join(tmpdir(), "pi-run-guard-worktree-"));
-  const outside = mkdtempSync(join(tmpdir(), "pi-run-guard-outside-"));
+  const worktree = mkdtempSync(join(tmpdir(), "pi-for-claude-guard-worktree-"));
+  const outside = mkdtempSync(join(tmpdir(), "pi-for-claude-guard-outside-"));
   symlinkSync(outside, join(worktree, "escape"));
   assert.match(writeBlocked("escape/new.txt", { ...config, allowWrite: [worktree] }, worktree, false), /outside allowed paths/);
 });

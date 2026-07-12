@@ -1,13 +1,13 @@
-# pi-run
+# pi-for-claude
 
-`pi-run` delegates implementation and review commands to pi. Worktree implementations stay isolated in persistent git worktrees; in-place implementations edit the project directory directly. Prompt files define model, thinking, sandbox, worktree, and session behavior; the runner owns git layout, RPC control, and session metadata.
+`pi-for-claude` delegates implementation and review commands to pi. Worktree implementations stay isolated in persistent git worktrees; in-place implementations edit the project directory directly. Prompt files define model, thinking, sandbox, worktree, and session behavior; the runner owns git layout, RPC control, and session metadata.
 
 ## Setup
 
 Run `npm ci` in the repository checkout. Add its command directory to `PATH`:
 
 ```sh
-export PATH="$PATH:/path/to/pi-run/bin"
+export PATH="$PATH:/path/to/pi-for-claude/bin"
 ```
 
 `models.json` maps stable labels to provider/model ids. A label may be a string or an object with a default thinking level:
@@ -28,7 +28,7 @@ Commands in a git project can run from any subdirectory or linked worktree; the 
 Write a uniquely named plan, then start a session:
 
 ```sh
-pi-run implement-in-worktree path/to/fix-auth.md
+pi-for-claude implement-in-worktree path/to/fix-auth.md
 ```
 
 The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. A rebase left in progress never bounces: it is pi escalating a conflict it shouldn’t judge, and the run completes with a warning listing the conflicted files. Conflicts against main are otherwise not pi’s to resolve — they surface at merge time.
@@ -37,7 +37,7 @@ After the run:
 
 1. Inspect the final response and worktree diff.
 2. Run the project’s verification in the worktree.
-3. Run `pi-run merge fix-auth`.
+3. Run `pi-for-claude merge fix-auth`.
 
 `merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. The session’s commits fast-forward onto main verbatim. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
 
@@ -45,11 +45,11 @@ If main moved, `merge` rebases and stops so verification can be rerun against th
 
 Resolve the merge, stage the changes, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
 
-Use `pi-run discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review or in-place session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
+Use `pi-for-claude discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review or in-place session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
 
 ### In-place sessions
 
-`pi-run run <plan-file>` edits the project directory directly without creating a branch or worktree, and it works without git. In a non-git project, run every pi-run command from the project root: the root is the resolved current directory, so a different directory cannot find the session and fails with `Unknown session`. Review in-place changes normally, then use `discard <session>` to close the session; there is no merge step and discard leaves project files in place.
+`pi-for-claude run <plan-file>` edits the project directory directly without creating a branch or worktree, and it works without git. In a non-git project, run every pi-for-claude command from the project root: the root is the resolved current directory, so a different directory cannot find the session and fails with `Unknown session`. Review in-place changes normally, then use `discard <session>` to close the session; there is no merge step and discard leaves project files in place.
 
 ## Commands
 
@@ -75,7 +75,7 @@ Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments
 
 ## Sessions and control
 
-Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Outside git, `<main>` is the project root. Metadata and event logs share the session's creation prefix: `<timestamp>-<session>.pi-run.json` and `<timestamp>-<session>.log`. Commands still address the session by its plain id. Starting `implement-in-worktree` or `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
+Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Outside git, `<main>` is the project root. Metadata and event logs share the session's creation prefix: `<timestamp>-<session>.pi-for-claude.json` and `<timestamp>-<session>.log`. Commands still address the session by its plain id. Starting `implement-in-worktree` or `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 
@@ -87,7 +87,7 @@ Launch each run or resume directly in one persistent Monitor. The run emits each
 
 - route every bash call to the sandbox extension’s OS-sandboxed implementation; pi registers the extension’s `bash` over its builtin tool, so the builtin bash never executes;
 - explicitly allowlist tools in every mode so no unlisted tool is available; `bash` remains listed because pi applies allowlists to extension tools too;
-- disable extension discovery and load only pi-run's sandbox and consult extensions;
+- disable extension discovery and load only pi-for-claude's sandbox and consult extensions;
 - cap each bash command at 600 seconds; a missing or zero timeout uses that cap;
 - guard pi’s built-in read, write, edit, grep, find, and list tools;
 - scope git writes for `worktree-write` to the session: pi can stage, commit, and rebase its own branch and append to `info/exclude`, while hooks, config (including `config.worktree`), other branches, the `commondir`/`gitdir` worktree pointers, and the worktree's `.git` file stay write-blocked;
