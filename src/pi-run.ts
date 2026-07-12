@@ -206,7 +206,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
   ];
   if (command.sandbox === "read-only") args.push("--tools", "read,bash,grep,find,ls");
 
-  // Sessions that start mid-rebase (resume-and-resolve-merge) legitimately hand
+  // Sessions resumed while a rebase is in progress legitimately hand
   // back an unfinished rebase; everything else must settle cleanly mergeable.
   const checkHandback =
     session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);

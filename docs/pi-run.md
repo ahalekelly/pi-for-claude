@@ -31,7 +31,7 @@ Write a uniquely named plan, then start a session:
 pi-run implement-in-worktree path/to/fix-auth.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree or an unfinished rebase, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt. Conflicts against main are not pi’s to resolve — they surface at merge time.
+The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree or an unfinished rebase, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. Sessions resumed while a rebase is in progress are exempt. Conflicts against main are not pi’s to resolve — they surface at merge time.
 
 After the run:
 
@@ -41,13 +41,9 @@ After the run:
 
 `merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. The session’s commits fast-forward onto main verbatim. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
 
-If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress. Resolve them there, or use:
+If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress.
 
-```sh
-pi-run resume-and-resolve-merge fix-auth "Preserve both validation rules"
-```
-
-Review the resolved files, stage them, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
+Resolve the merge, stage the changes, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
 
 Use `pi-run discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
 
@@ -57,7 +53,6 @@ Prompt commands:
 
 - `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session.
 - `resume <session> <follow-up>` — continue the same pi conversation and worktree.
-- `resume-and-resolve-merge <session> [instructions]` — continue the session with the active conflict list injected.
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label.
 
