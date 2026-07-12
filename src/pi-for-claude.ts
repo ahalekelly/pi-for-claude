@@ -486,7 +486,6 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
 }
 
 function composePrompt(command: PromptCommand, worktree: string, args: string[], flags: Flags): string {
-  const preRunOutput = command.preRunShell ? shell(command.preRunShell, worktree) : "";
   const injections: Record<string, string> = {};
   injections.base = flags.base;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
@@ -500,9 +499,28 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
   const readFiles = (paths: string[]) => paths.map((path) => readFileSync(resolve(path), "utf8")).join("\n\n");
   const guidance = command.lifecycle === "direct" ? "" : command.consult;
   const templateArgs = command.lifecycle === "create" || command.lifecycle === "in-place" ? args.slice(1) : args;
-  return [preRunOutput, readFiles(flags.prepend), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.append)]
+  const prompt = [readFiles(flags.prepend), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.append)]
     .filter(Boolean)
     .join("\n\n");
+  const input: string[] = [];
+  for (const entry of command.input) {
+    switch (entry.kind) {
+      case "prompt":
+        input.push(prompt);
+        break;
+      case "text":
+        input.push(entry.text.trimEnd());
+        break;
+      case "shell":
+        input.push(shell(entry.shell, worktree));
+        break;
+      default: {
+        const unknownEntry: never = entry;
+        fail(msg("unknown-input-entry", { entry: String(unknownEntry) }));
+      }
+    }
+  }
+  return input.filter(Boolean).join("\n\n");
 }
 
 async function runPrompt(name: string, project: string, values: string[]): Promise<void> {

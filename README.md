@@ -1,6 +1,6 @@
 # pi-for-claude
 
-Allow Claude Code to delegate tasks to the Pi agent. Pi supports OpenAI Codex, Google Gemini, and many other models.
+`pi-for-claude` allows Claude Code or other AI agents to delegate tasks to Pi agents. Pi is a minimalist, customizable agent harness that supports OpenAI Codex, Google Gemini, and many other models.
 
 Features:
 
@@ -154,7 +154,7 @@ A single `*` selects the registered model with the highest one- or two-part nume
 
 ## Reusable Prompts
 
-Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, sandbox, and session lifecycle; their body defines the prompt sent to Pi. `pre-run-shell` runs before Pi and prepends its stdout to the prompt. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and `shell` emits traced, best-effort shell output. Shell entries can appear before or after `pi`, though Pi finishes before the output list is rendered. Trusted shell blocks run outside Pi's sandbox. The included commands are useful examples.
+Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, sandbox, and session lifecycle; their body defines the main prompt sent to Pi. The ordered `input` list assembles Pi's message: `prompt` inserts the rendered Markdown body, `text` inserts literal text, and strict `shell` inserts command output. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and best-effort `shell` emits traced command output. Trusted shell entries run outside Pi's sandbox. The included commands are useful examples.
 
 ## Sandbox
 

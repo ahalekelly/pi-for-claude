@@ -20,7 +20,10 @@ function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
 }
 
-type OutputEntry = { kind: "pi" } | { kind: "text"; text: string } | { kind: "shell"; shell: string };
+type ContentEntry = { kind: "text"; text: string } | { kind: "shell"; shell: string };
+type InputEntry = { kind: "prompt" } | ContentEntry;
+type OutputEntry = { kind: "pi" } | ContentEntry;
+type Sequence = { kind: "input"; entries: InputEntry[] } | { kind: "output"; entries: OutputEntry[] };
 
 type PromptFields = {
   description: string;
@@ -28,7 +31,7 @@ type PromptFields = {
   model: string;
   thinking: { kind: "model-default" } | { kind: "prompt"; level: ThinkingLevel };
   inject: Record<string, string>;
-  preRunShell: string;
+  input: InputEntry[];
   output: OutputEntry[];
   body: string;
 };
@@ -51,7 +54,7 @@ const rootFields = new Set([
   "session",
   "consult",
   "inject",
-  "pre-run-shell",
+  "input",
   "output",
 ]);
 
@@ -74,6 +77,40 @@ function enumValue<const Values extends readonly string[]>(field: string, value:
   return value as Values[number];
 }
 
+function parseSequence(lines: string[], index: number, end: number, sequence: Sequence): number {
+  const marker = sequence.kind === "input" ? "prompt" : "pi";
+  while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
+    const entry = lines[index + 1]!;
+    if (!entry.trim()) {
+      index += 1;
+      continue;
+    }
+    if (entry === `  - ${marker}`) {
+      if (sequence.kind === "input") sequence.entries.push({ kind: "prompt" });
+      else sequence.entries.push({ kind: "pi" });
+      index += 1;
+      continue;
+    }
+    const match = /^  - (text|shell): \|$/.exec(entry);
+    if (!match) throw new Error(msg("malformed-sequence-entry", { field: sequence.kind, entry }));
+    const kind = match[1] as "text" | "shell";
+    const block: string[] = [];
+    index += 1;
+    while (index + 1 < end && (lines[index + 1]!.startsWith("      ") || !lines[index + 1]!.trim())) {
+      const blockLine = lines[index + 1]!;
+      block.push(blockLine.trim() ? blockLine.slice(6) : "");
+      index += 1;
+    }
+    if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("sequence-entry-empty", { field: sequence.kind, kind }));
+    const content = `${block.join("\n")}\n`;
+    sequence.entries.push(kind === "text" ? { kind, text: content } : { kind, shell: content });
+  }
+  if (sequence.entries.filter((entry) => entry.kind === marker).length !== 1) {
+    throw new Error(msg("sequence-requires-one-marker", { field: sequence.kind, marker }));
+  }
+  return index;
+}
+
 export function parsePrompt(source: string): PromptCommand {
   const lines = source.split("\n");
   if (lines[0] !== "---") throw new Error(msg("must-start-with-frontmatter"));
@@ -82,7 +119,7 @@ export function parsePrompt(source: string): PromptCommand {
 
   const values = new Map<string, string>();
   const inject: Record<string, string> = {};
-  let preRunShell = "";
+  const input: PromptFields["input"] = [];
   const output: PromptFields["output"] = [];
 
   for (let index = 1; index < end; index += 1) {
@@ -114,52 +151,10 @@ export function parsePrompt(source: string): PromptCommand {
       continue;
     }
 
-    if (field === "pre-run-shell") {
-      if (rawValue !== "|") throw new Error(msg("prompt-block-must-use-block", { field }));
-      values.set(field, "block");
-      const block: string[] = [];
-      while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
-        const blockLine = lines[index + 1]!;
-        if (blockLine.trim() && !blockLine.startsWith("  ")) {
-          throw new Error(msg("malformed-prompt-block-indentation", { field, line: blockLine }));
-        }
-        block.push(blockLine.slice(2));
-        index += 1;
-      }
-      if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("prompt-block-empty", { field }));
-      preRunShell = `${block.join("\n")}\n`;
-      continue;
-    }
-
-    if (field === "output") {
-      if (rawValue) throw new Error(msg("output-must-be-list"));
+    if (field === "input" || field === "output") {
+      if (rawValue) throw new Error(msg("sequence-must-be-list", { field }));
       values.set(field, "list");
-      while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
-        const entry = lines[index + 1]!;
-        if (!entry.trim()) {
-          index += 1;
-          continue;
-        }
-        if (entry === "  - pi") {
-          output.push({ kind: "pi" });
-          index += 1;
-          continue;
-        }
-        const match = /^  - (text|shell): \|$/.exec(entry);
-        if (!match) throw new Error(msg("malformed-output-entry", { entry }));
-        const kind = match[1] as "text" | "shell";
-        const block: string[] = [];
-        index += 1;
-        while (index + 1 < end && (lines[index + 1]!.startsWith("      ") || !lines[index + 1]!.trim())) {
-          const blockLine = lines[index + 1]!;
-          block.push(blockLine.trim() ? blockLine.slice(6) : "");
-          index += 1;
-        }
-        if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("output-entry-empty", { kind }));
-        const content = `${block.join("\n")}\n`;
-        output.push(kind === "text" ? { kind, text: content } : { kind, shell: content });
-      }
-      if (output.filter((entry) => entry.kind === "pi").length !== 1) throw new Error(msg("output-requires-one-pi"));
+      index = parseSequence(lines, index, end, field === "input" ? { kind: field, entries: input } : { kind: field, entries: output });
       continue;
     }
 
@@ -184,7 +179,7 @@ export function parsePrompt(source: string): PromptCommand {
       ? { kind: "prompt", level: enumValue("thinking", required("thinking"), thinkingLevels) }
       : { kind: "model-default" },
     inject,
-    preRunShell,
+    input: values.has("input") ? input : [{ kind: "prompt" }],
     output: values.has("output") ? output : [{ kind: "pi" }],
     body: lines.slice(end + 1).join("\n"),
   };

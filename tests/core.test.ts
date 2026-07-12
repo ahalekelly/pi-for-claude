@@ -15,8 +15,14 @@ session: new
 consult: Ask when blocked
 inject:
   branch: git branch --show-current
-pre-run-shell: |
-  printf 'Repository context'
+input:
+  - shell: |
+      printf 'Repository context'
+  - text: |
+      Additional instructions
+  - prompt
+  - text: |
+      Final input note
 output:
   - text: |
       Before Pi:
@@ -41,7 +47,12 @@ Implement $plan on $branch.
     sandbox: "worktree-write",
     consult: "Ask when blocked",
     inject: { branch: "git branch --show-current" },
-    preRunShell: "printf 'Repository context'\n",
+    input: [
+      { kind: "shell", shell: "printf 'Repository context'\n" },
+      { kind: "text", text: "Additional instructions\n" },
+      { kind: "prompt" },
+      { kind: "text", text: "Final input note\n" },
+    ],
     output: [
       { kind: "text", text: "Before Pi:\n" },
       { kind: "shell", shell: "git status --short\n" },
@@ -52,6 +63,8 @@ Implement $plan on $branch.
     body: "Implement $plan on $branch.\n",
   });
 
+  assert.throws(() => parsePrompt(source.replace("  - prompt\n", "")), /must contain exactly one '- prompt' entry/);
+  assert.throws(() => parsePrompt(source.replace("  - prompt\n", "  - prompt\n  - prompt\n")), /must contain exactly one '- prompt' entry/);
   assert.throws(() => parsePrompt(source.replace("  - pi\n", "")), /must contain exactly one '- pi' entry/);
   assert.throws(() => parsePrompt(source.replace("  - pi\n", "  - pi\n  - pi\n")), /must contain exactly one '- pi' entry/);
 });
@@ -79,7 +92,7 @@ $plan
       sandbox: "project-write",
       consult: "Ask when blocked",
       inject: {},
-      preRunShell: "",
+      input: [{ kind: "prompt" }],
       output: [{ kind: "pi" }],
       body: "$plan\n",
     },

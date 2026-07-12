@@ -85,8 +85,12 @@ sandbox: worktree-write
 worktree: create
 session: new
 consult: Ask when blocked
-pre-run-shell: |
-  printf 'Context generated before Pi runs.'
+input:
+  - shell: |
+      printf 'Context generated before Pi runs.'
+  - text: |
+      Additional input text.
+  - prompt
 output:
   - text: |
       Before Pi:
@@ -243,7 +247,7 @@ process.stdin.on("data", chunk => {
   const worktree = join(realpathSync(root), ".agents/worktrees/fix-auth");
   assert.match(output, /Before Pi:\n\+ echo before\nbefore\nImplemented auth\.\nAfter Pi:\n\+ echo after\nafter/);
   assert.equal(git(worktree, "branch", "--show-current"), "pi/fix-auth");
-  assert.match(readFileSync(captured, "utf8"), /^Context generated before Pi runs\./);
+  assert.match(readFileSync(captured, "utf8"), /^Context generated before Pi runs\.\n\nAdditional input text\./);
   assert.match(readFileSync(captured, "utf8"), /Fix the auth flow\./);
   assert.match(readFileSync(captured, "utf8"), /Do not run git commit or git push/);
 
