@@ -24,7 +24,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
 6. To make changes, use `pi-run resume <session> "<message>"` to ask for further edits, or for minor edits you can edit the worktree files yourself (`queue` only works while a run is still active)
 
-7. To accept the edits, run `pi-run merge <session> "<commit message>"` — commits any uncommitted worktree changes, rebases onto the main checkout's current branch, squashes the whole session into a single commit with your message, fast-forwards main, and removes the worktree and branch. Each merged session lands as exactly one commit on main.
+7. To accept the edits, run `pi-run merge <session> "<commit message>"` — commits any uncommitted worktree changes, rebases onto the main checkout's current branch, squashes the whole session into a single commit with your message, fast-forwards main, and removes the worktree and branch. Each merged session lands as exactly one commit on main. Everything in the worktree that git doesn't ignore gets committed, so during review delete stray files or add them to `.gitignore` / `<main>/.git/info/exclude`.
 
    If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume-and-resolve-merge <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
 
