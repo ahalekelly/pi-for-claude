@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -100,8 +100,9 @@ process.stdin.on("data", chunk => {
   );
   chmodSync(fakePi, 0o755);
 
-  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "run", root, "fix-auth.md"], {
+  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "run", "fix-auth.md"], {
     encoding: "utf8",
+    cwd: root,
     env: {
       ...process.env,
       PI_BIN: fakePi,
@@ -117,7 +118,7 @@ process.stdin.on("data", chunk => {
   assert.match(readFileSync(captured, "utf8"), /Do not run git commit or git push/);
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  assert.equal(execFileSync(process.execPath, [cli, "result", root, "fix-auth"], { encoding: "utf8" }), "Implemented auth.\n");
+  assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
   writeFileSync(join(worktree, "auth.txt"), "fixed\n");
   writeFileSync(join(worktree, "README.md"), "session change\n");
   git(worktree, "add", "auth.txt");
@@ -127,19 +128,19 @@ process.stdin.on("data", chunk => {
   git(root, "add", "README.md");
   git(root, "commit", "-m", "Move main");
 
-  const conflicted = spawnSync(process.execPath, [cli, "merge", root, "fix-auth"], { encoding: "utf8" });
+  const conflicted = spawnSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root });
   assert.equal(conflicted.status, 1);
   assert.match(conflicted.stderr, /Rebase stopped with conflicts in:\nREADME.md/);
   writeFileSync(join(worktree, "README.md"), "resolved\n");
   git(worktree, "add", "README.md");
   git(worktree, "-c", "core.editor=true", "rebase", "--continue");
 
-  assert.match(execFileSync(process.execPath, [cli, "merge", root, "fix-auth"], { encoding: "utf8" }), /Re-run verification/);
-  assert.match(execFileSync(process.execPath, [cli, "merge", root, "fix-auth"], { encoding: "utf8" }), /Merged 'fix-auth'/);
+  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root }), /Re-run verification/);
+  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: root }), /Merged 'fix-auth'/);
   assert.equal(readFileSync(join(root, "auth.txt"), "utf8"), "fixed\n");
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "resolved\n");
   assert.equal(existsSync(worktree), false);
-  assert.equal(execFileSync(process.execPath, [cli, "result", root, "fix-auth"], { encoding: "utf8" }), "Implemented auth.\n");
+  assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
 });
 
 test("failures before and during a run fail fast without burning the session id", () => {
@@ -150,7 +151,7 @@ test("failures before and during a run fail fast without burning the session id"
   const worktree = join(root, ".agents/scratchpad/worktrees/plan");
   const sessionFile = join(root, ".agents/scratchpad/pi/sessions/plan.pi-run.json");
   const run = (env: Record<string, string>, ...args: string[]) =>
-    spawnSync(process.execPath, [cli, "run", root, ...args], { encoding: "utf8", env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
+    spawnSync(process.execPath, [cli, "run", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
 
   const badModel = run({}, "plan.md", "--model", "nope");
   assert.equal(badModel.status, 1);
@@ -211,8 +212,62 @@ test("discard removes a direct session's record without touching git", () => {
   writeFileSync(join(sessions, "review-1.pi-run.json"), JSON.stringify(record));
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  const output = execFileSync(process.execPath, [cli, "discard", root, "review-1"], { encoding: "utf8" });
+  const output = execFileSync(process.execPath, [cli, "discard", "review-1"], { encoding: "utf8", cwd: root });
   assert.match(output, /Discarded 'review-1'/);
   assert.equal(existsSync(join(sessions, "review-1.pi-run.json")), false);
   assert.equal(git(root, "status", "--porcelain"), "");
+});
+
+test("watch prints each question once and exits when the run ends", async () => {
+  const root = scratchRepo("pi-run-watch-");
+  const sessions = join(root, ".agents/scratchpad/pi/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const record = {
+    kind: "direct",
+    id: "w1",
+    command: "review",
+    mainCheckout: root,
+    worktree: root,
+    baseCommit: git(root, "rev-parse", "HEAD"),
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  writeFileSync(join(sessions, "w1.pi-run.json"), JSON.stringify(record));
+  const control = join(sessions, "w1.ctl");
+  const question = join(sessions, "w1.question.md");
+  const answer = join(realpathSync(root), ".agents/scratchpad/pi/sessions", "w1.answer.md");
+  writeFileSync(control, "");
+  writeFileSync(question, "Which auth flow?");
+
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const child = spawn(process.execPath, [cli, "watch", "w1"], { cwd: root });
+  let stdout = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+
+  const deadline = Date.now() + 15000;
+  const waitUntil = async (predicate: () => boolean) => {
+    while (!predicate()) {
+      if (Date.now() > deadline) assert.fail("timed out waiting for watch output");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+  };
+
+  try {
+    await waitUntil(() => stdout.includes("Which auth flow?"));
+    assert.match(stdout, new RegExp(`Answer by writing ${answer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+
+    rmSync(question);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
+    assert.equal(stdout.match(/Which auth flow\?/g)?.length, 1);
+
+    rmSync(control);
+    const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /no longer running/);
+  } finally {
+    if (existsSync(control)) rmSync(control);
+    if (child.exitCode === null) child.kill("SIGKILL");
+  }
 });

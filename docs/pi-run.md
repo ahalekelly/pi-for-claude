@@ -23,10 +23,12 @@ Unknown labels, malformed config, and missing required settings fail before pi s
 
 ## Implementation workflow
 
+Commands run from inside the project — any subdirectory or linked worktree works; the runner resolves to the main checkout.
+
 Write a uniquely named plan, then start a session:
 
 ```sh
-pi-run run "$PROJECT_DIR" path/to/fix-auth.md
+pi-run run path/to/fix-auth.md
 ```
 
 The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi leaves changes uncommitted and cannot write git metadata.
@@ -36,42 +38,43 @@ After the run:
 1. Inspect the final response and worktree diff.
 2. Run the project’s verification in the worktree.
 3. Commit the reviewed changes on the session branch.
-4. Run `pi-run merge "$PROJECT_DIR" fix-auth`.
+4. Run `pi-run merge fix-auth`.
 
 `merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
 
 If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress. Resolve them there, or use:
 
 ```sh
-pi-run resume-and-resolve-merge "$PROJECT_DIR" fix-auth "Preserve both validation rules"
+pi-run resume-and-resolve-merge fix-auth "Preserve both validation rules"
 ```
 
 Review the resolved files, stage them, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
 
-Use `pi-run discard "$PROJECT_DIR" fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
+Use `pi-run discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
 
 ## Commands
 
 Prompt commands:
 
-- `run <project> <plan-file>` — implement a plan in a new worktree and session.
-- `resume <project> <session> <follow-up>` — continue the same pi conversation and worktree.
-- `resume-and-resolve-merge <project> <session> [instructions]` — continue the session with the active conflict list injected.
-- `review <project> [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
-- `adversarial-review <project> [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label.
+- `run <plan-file>` — implement a plan in a new worktree and session.
+- `resume <session> <follow-up>` — continue the same pi conversation and worktree.
+- `resume-and-resolve-merge <session> [instructions]` — continue the session with the active conflict list injected.
+- `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
+- `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label.
 
 Built-in commands do not call a model:
 
-- `sessions <project>` — list session ids, originating commands, and worktrees.
-- `result <project> <session>` — print the last completed assistant response.
-- `steer <project> <session> <message>` — deliver a message after the current tool calls and before the next model call.
-- `followup <project> <session> <message>` — queue work after the current agent run settles.
-- `interrupt <project> <session>` — abort the active turn; the session remains resumable.
-- `merge <project> <session>` — rebase, fast-forward, and clean up.
-- `discard <project> <session>` — force-remove the worktree and branch, or just the record for review sessions.
+- `sessions` — list session ids, originating commands, and worktrees.
+- `result <session>` — print the last completed assistant response.
+- `steer <session> <message>` — deliver a message after the current tool calls and before the next model call.
+- `followup <session> <message>` — queue work after the current agent run settles.
+- `interrupt <session>` — abort the active turn; the session remains resumable.
+- `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends.
+- `merge <session>` — rebase, fast-forward, and clean up.
+- `discard <session>` — force-remove the worktree and branch, or just the record for review sessions.
 - `help` — render prompt names, argument hints, and descriptions.
 
-Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments plus `--model <label-or-id>`, `--thinking <level>`, and `--base <ref>`. Paths are resolved from the supplied project directory. Model and thinking flags override prompt frontmatter.
+Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments plus `--model <label-or-id>`, `--thinking <level>`, and `--base <ref>`. Paths are resolved from the current directory. Model and thinking flags override prompt frontmatter.
 
 ## Sessions and control
 
@@ -79,7 +82,7 @@ Session JSONL, metadata, event logs, and control sockets live under `<main>/.age
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 
-After launching a run or resume in the background, start an orchestrator Monitor for `*.question.md` in the session directory. The Monitor should surface the question, obtain an answer, and write the matching `<session>.answer.md`; `pi-run` deliberately leaves the judgment and notification channel to the orchestrator.
+After launching each run or resume, start a Monitor running `pi-run watch <session>`. It emits each question with the path to write the answer to, and exits when the session's run ends. `watch` is scoped to one session so multiple orchestrators can share a repo without seeing each other's questions — only watch sessions you launched. Note that `watch` cannot distinguish an answered question from one that hit the consult timeout.
 
 ## Sandbox
 

@@ -3,7 +3,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { parsePrompt, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { git, mainCheckout, sessionIdFromPlan } from "./runner.ts";
@@ -129,10 +129,6 @@ function commandFile(name: string): string {
     fail(`Unknown command '${name}'. Available commands: ${names.join(", ")}`);
   }
   return path;
-}
-
-function fileFromProject(project: string, path: string): string {
-  return isAbsolute(path) ? path : resolve(project, path);
 }
 
 function shell(command: string, cwd: string): string {
@@ -334,33 +330,32 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
   });
 }
 
-function composePrompt(command: PromptCommand, project: string, worktree: string, args: string[], flags: Flags): string {
+function composePrompt(command: PromptCommand, worktree: string, args: string[], flags: Flags): string {
   const injections: Record<string, string> = {};
   injections.base = flags.base;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
   if (command.lifecycle === "create") {
     const plan = args[0];
     if (!plan) fail("A plan file is required");
-    const planPath = fileFromProject(project, plan);
+    const planPath = resolve(plan);
     injections.plan_path = planPath;
     injections.plan = readFileSync(planPath, "utf8");
   }
-  const readFiles = (paths: string[]) => paths.map((path) => readFileSync(fileFromProject(project, path), "utf8")).join("\n\n");
+  const readFiles = (paths: string[]) => paths.map((path) => readFileSync(resolve(path), "utf8")).join("\n\n");
   const guidance = command.lifecycle === "direct" ? "" : command.consult;
   return [readFiles(flags.pre), guidance, renderTemplate(command.body, command.lifecycle === "create" ? args.slice(1) : args, injections), readFiles(flags.post)]
     .filter(Boolean)
     .join("\n\n");
 }
 
-async function runPrompt(name: string, projectValue: string, values: string[]): Promise<void> {
-  const project = resolve(projectValue);
+async function runPrompt(name: string, project: string, values: string[]): Promise<void> {
   const command = parsePrompt(readFileSync(commandFile(name), "utf8"));
   const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
   const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models);
   for (const path of [...flags.pre, ...flags.post]) {
-    if (!existsSync(fileFromProject(project, path))) fail(`Attachment file does not exist: ${fileFromProject(project, path)}`);
+    if (!existsSync(resolve(path))) fail(`Attachment file does not exist: ${resolve(path)}`);
   }
   const dirs = sessionDirs(project);
   let session: Session;
@@ -377,7 +372,7 @@ async function runPrompt(name: string, projectValue: string, values: string[]): 
   } else if (command.lifecycle === "create") {
     const plan = flags.args[0];
     if (!plan) fail(`${name} requires a plan file`);
-    if (!existsSync(fileFromProject(project, plan))) fail(`Plan file does not exist: ${fileFromProject(project, plan)}`);
+    if (!existsSync(resolve(plan))) fail(`Plan file does not exist: ${resolve(plan)}`);
     const id = sessionIdFromPlan(plan);
     if (existsSync(sessionPath(dirs.sessions, id)) || piSessionFiles(dirs.sessions, id).length > 0) {
       fail(`Session '${id}' already exists; resume it or choose a new plan name`);
@@ -418,7 +413,7 @@ async function runPrompt(name: string, projectValue: string, values: string[]): 
     writeSession(dirs.sessions, session);
   }
 
-  const prompt = composePrompt(command, project, session.worktree, promptArgs, flags);
+  const prompt = composePrompt(command, session.worktree, promptArgs, flags);
   const result = await rpcRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   process.stdout.write(`${result}\n`);
   if (command.outputAppend) process.stdout.write(`${shell(command.outputAppend, session.worktree)}\n`);
@@ -497,18 +492,48 @@ function discard(project: string, id: string): void {
 }
 
 function help(): void {
-  process.stdout.write("Usage: pi-run <command> <project-dir> [args...]\n\nPrompt commands:\n");
+  process.stdout.write("Usage: pi-run <command> [args...] (run from inside the project)\n\nPrompt commands:\n");
   for (const file of readdirSync(join(home, "prompts")).filter((name) => name.endsWith(".md")).sort()) {
     const command = parsePrompt(readFileSync(join(home, "prompts", file), "utf8"));
     process.stdout.write(`  ${basename(file, ".md")} ${command.argumentHint}\t${command.description}\n`);
   }
-  process.stdout.write("\nBuilt-ins: help, sessions, result, steer, followup, interrupt, merge, discard\n");
+  process.stdout.write("\nBuilt-ins: help, sessions, result, steer, followup, interrupt, merge, discard, watch\n");
+}
+
+async function watch(project: string, id: string): Promise<void> {
+  const { sessions } = sessionDirs(project);
+  readSession(sessions, id);
+  const control = join(sessions, `${id}.ctl`);
+  const question = join(sessions, `${id}.question.md`);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const graceDeadline = Date.now() + 60_000;
+  while (!existsSync(control) && Date.now() < graceDeadline) await sleep(500);
+  if (!existsSync(control)) fail(`Session '${id}' is not running`);
+  while (existsSync(control)) {
+    if (existsSync(question)) {
+      let text: string;
+      try {
+        text = readFileSync(question, "utf8");
+      } catch {
+        continue; // answered between the existence check and the read
+      }
+      process.stdout.write(`Question from session '${id}':\n${text}\nAnswer by writing ${join(sessions, `${id}.answer.md`)}\n`);
+      while (existsSync(question)) await sleep(500);
+    }
+    await sleep(500);
+  }
+  process.stdout.write(`Session '${id}' is no longer running.\n`);
 }
 
 async function main(argv: string[]): Promise<void> {
-  const [name, project, ...values] = argv;
+  const [name, ...values] = argv;
   if (!name || name === "help") return help();
-  if (!project) fail(`${name} requires a project directory`);
+  const project = process.cwd();
+  if (name === "watch") {
+    const id = values[0];
+    if (!id) fail("watch requires a session id");
+    return watch(project, id);
+  }
   if (name === "sessions") return listSessions(project);
   if (name === "result") {
     const id = values[0];
