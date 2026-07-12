@@ -612,7 +612,7 @@ function logTail(path: string): string {
   readSync(fd, buffer, 0, length, size - length);
   closeSync(fd);
   const lines = buffer.toString("utf8").trimEnd().split("\n");
-  const last = lines[lines.length - 1] ?? "";
+  const last = (lines[lines.length - 1] ?? "").replace(/"thinkingSignature":"[^"]*"/g, '"thinkingSignature":"…"');
   return last.length > 500 ? `${last.slice(0, 500)}…` : last;
 }
 
