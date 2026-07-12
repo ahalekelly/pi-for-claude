@@ -1,6 +1,6 @@
 # pi-for-claude
 
-Delegate tasks to GPT-5.6 in Pi with `pi-for-claude`.
+Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 `implement-in-worktree` requires a git repository and creates a persistent worktree session under the main checkout's `.agents/`. `run` edits the project directory directly and also works without git. Commands must run inside the project directory. In a git repository, use `implement-in-worktree` when running multiple agents simultaneously, `run` is for non-git directories and single-subagent workflows.
 
@@ -55,7 +55,18 @@ Delegate tasks to GPT-5.6 in Pi with `pi-for-claude`.
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
-- `--model <label-or-id>` — override the prompt's model; labels come from the pi-for-claude checkout's `models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
+- `--model <label-or-id>` — override the prompt's model; labels come from the pi-for-claude checkout's `models.json` (`default` selects the latest openai-codex Sol model at medium, `best` selects it at xhigh, and `cheap` selects the latest Luna model at medium)
 - `--thinking <level>` — override the model label's default thinking level
 - `--base <ref>` — diff base for reviews
-- `--pre <file>` / `--post <file>` — prepend/append text files to the prompt; paths resolve from the current directory
+- `--prepend <file>` / `--append <file>` — prepend/append text files to the prompt; paths resolve from the current directory
+
+<!-- pi-scoped-models:start -->
+## Pi scoped models
+
+This list is generated from Pi's saved `/scoped-models` configuration.
+
+- `openai-codex/gpt-5.6-sol`
+- `openai-codex/gpt-5.6-terra`
+- `openai-codex/gpt-5.6-luna`
+- `google/gemini-flash-latest`
+<!-- pi-scoped-models:end -->

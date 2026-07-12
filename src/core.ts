@@ -20,13 +20,16 @@ function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
 }
 
+type OutputEntry = { kind: "pi" } | { kind: "text"; text: string } | { kind: "shell"; shell: string };
+
 type PromptFields = {
   description: string;
   argumentHint: string;
   model: string;
   thinking: { kind: "model-default" } | { kind: "prompt"; level: ThinkingLevel };
   inject: Record<string, string>;
-  outputAppend: string;
+  preRunShell: string;
+  output: OutputEntry[];
   body: string;
 };
 
@@ -48,7 +51,8 @@ const rootFields = new Set([
   "session",
   "consult",
   "inject",
-  "output-append",
+  "pre-run-shell",
+  "output",
 ]);
 
 function scalar(value: string, field: string): string {
@@ -78,7 +82,8 @@ export function parsePrompt(source: string): PromptCommand {
 
   const values = new Map<string, string>();
   const inject: Record<string, string> = {};
-  let outputAppend = "";
+  let preRunShell = "";
+  const output: PromptFields["output"] = [];
 
   for (let index = 1; index < end; index += 1) {
     const line = lines[index]!;
@@ -109,17 +114,52 @@ export function parsePrompt(source: string): PromptCommand {
       continue;
     }
 
-    if (field === "output-append") {
-      if (rawValue !== "|") throw new Error(msg("output-append-must-use-block"));
+    if (field === "pre-run-shell") {
+      if (rawValue !== "|") throw new Error(msg("prompt-block-must-use-block", { field }));
       values.set(field, "block");
       const block: string[] = [];
       while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
         const blockLine = lines[index + 1]!;
-        if (blockLine.trim() && !blockLine.startsWith("  ")) throw new Error(msg("malformed-output-append-indentation", { line: blockLine }));
+        if (blockLine.trim() && !blockLine.startsWith("  ")) {
+          throw new Error(msg("malformed-prompt-block-indentation", { field, line: blockLine }));
+        }
         block.push(blockLine.slice(2));
         index += 1;
       }
-      outputAppend = `${block.join("\n")}\n`;
+      if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("prompt-block-empty", { field }));
+      preRunShell = `${block.join("\n")}\n`;
+      continue;
+    }
+
+    if (field === "output") {
+      if (rawValue) throw new Error(msg("output-must-be-list"));
+      values.set(field, "list");
+      while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
+        const entry = lines[index + 1]!;
+        if (!entry.trim()) {
+          index += 1;
+          continue;
+        }
+        if (entry === "  - pi") {
+          output.push({ kind: "pi" });
+          index += 1;
+          continue;
+        }
+        const match = /^  - (text|shell): \|$/.exec(entry);
+        if (!match) throw new Error(msg("malformed-output-entry", { entry }));
+        const kind = match[1] as "text" | "shell";
+        const block: string[] = [];
+        index += 1;
+        while (index + 1 < end && (lines[index + 1]!.startsWith("      ") || !lines[index + 1]!.trim())) {
+          const blockLine = lines[index + 1]!;
+          block.push(blockLine.trim() ? blockLine.slice(6) : "");
+          index += 1;
+        }
+        if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("output-entry-empty", { kind }));
+        const content = `${block.join("\n")}\n`;
+        output.push(kind === "text" ? { kind, text: content } : { kind, shell: content });
+      }
+      if (output.filter((entry) => entry.kind === "pi").length !== 1) throw new Error(msg("output-requires-one-pi"));
       continue;
     }
 
@@ -144,7 +184,8 @@ export function parsePrompt(source: string): PromptCommand {
       ? { kind: "prompt", level: enumValue("thinking", required("thinking"), thinkingLevels) }
       : { kind: "model-default" },
     inject,
-    outputAppend,
+    preRunShell,
+    output: values.has("output") ? output : [{ kind: "pi" }],
     body: lines.slice(end + 1).join("\n"),
   };
   if (lifecycle === "worktree-write:create:new") {
@@ -186,28 +227,41 @@ export function resolveModel(
   labelOrId: string,
   explicitThinking: string | undefined,
   config: unknown,
+  registeredModels: readonly string[],
 ): ResolvedModel {
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error(msg("models-not-object"));
 
   const labels = config as Record<string, unknown>;
   for (const [label, value] of Object.entries(labels)) {
-    if (typeof value === "string") {
-      if (!value.includes("/")) throw new Error(msg("model-label-no-provider", { label }));
-      continue;
-    }
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(msg("model-label-malformed", { label }));
     const entry = value as Record<string, unknown>;
     if (Object.keys(entry).some((key) => key !== "model" && key !== "thinking")) throw new Error(msg("model-label-malformed", { label }));
     if (typeof entry.model !== "string" || !entry.model.includes("/")) throw new Error(msg("model-label-no-provider", { label }));
-    if (entry.thinking !== undefined) {
-      if (typeof entry.thinking !== "string") throw new Error(msg("model-label-non-string-thinking", { label }));
-      enumValue(`models.${label}.thinking`, entry.thinking, thinkingLevels);
-    }
+    if (entry.thinking === undefined) throw new Error(msg("model-label-no-thinking", { label }));
+    if (typeof entry.thinking !== "string") throw new Error(msg("model-label-non-string-thinking", { label }));
+    enumValue(`models.${label}.thinking`, entry.thinking, thinkingLevels);
   }
 
   const selected = labelOrId.includes("/") ? labelOrId : labels[labelOrId];
   if (selected === undefined) throw new Error(msg("unknown-model-label", { label: labelOrId }));
-  const model = typeof selected === "string" ? selected : (selected as { model: string }).model;
+  const configuredModel = typeof selected === "string" ? selected : (selected as { model: string }).model;
+  const wildcardCount = configuredModel.split("*").length - 1;
+  if (wildcardCount > 1) throw new Error(msg("model-pattern-malformed", { pattern: configuredModel }));
+  let model = configuredModel;
+  if (wildcardCount === 1) {
+    const expression = new RegExp(`^${configuredModel.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace("*", "(\\d+(?:\\.\\d+)?)")}$`);
+    const matches = registeredModels.flatMap((candidate) => {
+      const match = expression.exec(candidate);
+      return match ? [{ candidate, version: match[1]!.split(".").map(Number) }] : [];
+    });
+    if (matches.length === 0) throw new Error(msg("model-pattern-no-match", { pattern: configuredModel }));
+    matches.sort((left, right) => (right.version[0]! - left.version[0]!) || ((right.version[1] ?? 0) - (left.version[1] ?? 0)));
+    const [latest, second] = matches;
+    if (second && latest!.version[0] === second.version[0] && (latest!.version[1] ?? 0) === (second.version[1] ?? 0)) {
+      throw new Error(msg("model-pattern-ambiguous", { pattern: configuredModel }));
+    }
+    model = latest!.candidate;
+  }
   const labelThinking = typeof selected === "string" ? undefined : (selected as { thinking?: unknown }).thinking;
   if (labelThinking !== undefined && typeof labelThinking !== "string") {
     throw new Error(msg("model-label-invalid-thinking", { label: labelOrId }));

@@ -4,7 +4,7 @@ import test from "node:test";
 import { parsePrompt, renderTemplate, resolveModel } from "../src/core.ts";
 
 test("parsePrompt exposes a complete command definition", () => {
-  const command = parsePrompt(`---
+  const source = `---
 description: Implement a plan
 argument-hint: "<plan-file>"
 model: default
@@ -15,12 +15,22 @@ session: new
 consult: Ask when blocked
 inject:
   branch: git branch --show-current
-output-append: |
-  git status --short
-  git diff --stat
+pre-run-shell: |
+  printf 'Repository context'
+output:
+  - text: |
+      Before Pi:
+  - shell: |
+      git status --short
+  - pi
+  - text: |
+      After Pi:
+  - shell: |
+      git diff --stat
 ---
 Implement $plan on $branch.
-`);
+`;
+  const command = parsePrompt(source);
 
   assert.deepEqual(command, {
     description: "Implement a plan",
@@ -31,9 +41,19 @@ Implement $plan on $branch.
     sandbox: "worktree-write",
     consult: "Ask when blocked",
     inject: { branch: "git branch --show-current" },
-    outputAppend: "git status --short\ngit diff --stat\n",
+    preRunShell: "printf 'Repository context'\n",
+    output: [
+      { kind: "text", text: "Before Pi:\n" },
+      { kind: "shell", shell: "git status --short\n" },
+      { kind: "pi" },
+      { kind: "text", text: "After Pi:\n" },
+      { kind: "shell", shell: "git diff --stat\n" },
+    ],
     body: "Implement $plan on $branch.\n",
   });
+
+  assert.throws(() => parsePrompt(source.replace("  - pi\n", "")), /must contain exactly one '- pi' entry/);
+  assert.throws(() => parsePrompt(source.replace("  - pi\n", "  - pi\n  - pi\n")), /must contain exactly one '- pi' entry/);
 });
 
 test("parsePrompt supports in-place project writes", () => {
@@ -59,7 +79,8 @@ $plan
       sandbox: "project-write",
       consult: "Ask when blocked",
       inject: {},
-      outputAppend: "",
+      preRunShell: "",
+      output: [{ kind: "pi" }],
       body: "$plan\n",
     },
   );
@@ -86,30 +107,55 @@ test("renderTemplate does not expand tokens inside inserted values", () => {
 
 test("resolveModel applies explicit, label, and literal model settings", () => {
   const config = {
-    default: "openai-codex/gpt-5.6-terra",
+    default: { model: "openai-codex/gpt-5.6-terra", thinking: "high" },
     best: { model: "openai-codex/gpt-5.6-sol", thinking: "xhigh" },
   };
 
-  assert.deepEqual(resolveModel("best", undefined, config), {
+  assert.deepEqual(resolveModel("best", undefined, config, []), {
     model: "openai-codex/gpt-5.6-sol",
     thinking: "xhigh",
   });
-  assert.deepEqual(resolveModel("default", "high", config), {
+  assert.deepEqual(resolveModel("default", "high", config, []), {
     model: "openai-codex/gpt-5.6-terra",
     thinking: "high",
   });
-  assert.deepEqual(resolveModel("openai-codex/gpt-custom", "medium", config), {
+  assert.deepEqual(resolveModel("openai-codex/gpt-custom", "medium", config, []), {
     model: "openai-codex/gpt-custom",
     thinking: "medium",
   });
 });
 
+test("resolveModel selects the highest matching model from the requested provider", () => {
+  const config = { latest: { model: "openai-codex/gpt-*-sol", thinking: "medium" } };
+  const registeredModels = [
+    "openai/gpt-9.9-sol",
+    "openai-codex/gpt-5-sol",
+    "openai-codex/gpt-5.9-sol",
+    "openai-codex/gpt-5.10-sol",
+    "openai-codex/gpt-6-luna",
+  ];
+
+  assert.deepEqual(resolveModel("latest", undefined, config, registeredModels), {
+    model: "openai-codex/gpt-5.10-sol",
+    thinking: "medium",
+  });
+  assert.throws(() => resolveModel("latest", undefined, config, []), /does not match a registered model/);
+});
+
 test("resolveModel validates every configured label", () => {
   assert.throws(
-    () => resolveModel("openai-codex/gpt-test", "high", { broken: { model: "openai-codex/gpt-test", thinking: 42 } }),
+    () => resolveModel("openai-codex/gpt-test", "high", { shorthand: "openai-codex/gpt-test" }, []),
+    /Model label 'shorthand' is malformed/,
+  );
+  assert.throws(
+    () => resolveModel("openai-codex/gpt-test", "high", { missing: { model: "openai-codex/gpt-test" } }, []),
+    /must contain a thinking level/,
+  );
+  assert.throws(
+    () => resolveModel("openai-codex/gpt-test", "high", { broken: { model: "openai-codex/gpt-test", thinking: 42 } }, []),
     /non-string thinking level/,
   );
-  assert.throws(() => resolveModel("empty", "high", { empty: "" }), /provider\/model id/);
+  assert.throws(() => resolveModel("empty", "high", { empty: {} }, []), /provider\/model id/);
 });
 
 test("parsePrompt rejects unknown fields and invalid states", () => {

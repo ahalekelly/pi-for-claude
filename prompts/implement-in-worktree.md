@@ -7,10 +7,12 @@ sandbox: worktree-write
 worktree: create
 session: new
 consult: Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
-output-append: |
-  main_branch="$(git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." branch --show-current)"
-  git log --oneline --no-decorate "$main_branch..HEAD"
-  git diff --stat "$main_branch...HEAD"
+output:
+  - pi
+  - shell: |
+      main_branch="$(git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." branch --show-current)"
+      git log --oneline --no-decorate "$main_branch..HEAD"
+      git diff --stat "$main_branch...HEAD"
 ---
 Implement the plan below. It is also on disk at $plan_path if you need to re-read it later.
 
@@ -30,6 +32,6 @@ After you finish, the orchestrator reviews your commit and may resume this conve
 4. fast-forwards your commits onto main verbatim;
 5. deletes the worktree and branch — the conversation survives, the worktree does not.
 
-When done, summarize what you have done and any deviation from the plan.
+When done, do a thorough report on what you have done and any deviations from the plan or interesting findings. The orchestrator can only see your final message and the git status.
 
 $plan

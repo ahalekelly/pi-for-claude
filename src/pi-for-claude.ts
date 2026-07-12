@@ -5,8 +5,12 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSyn
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
+import { refreshInstructions } from "./instructions.ts";
 import { git, isGitRepository, mainCheckout, sessionIdFromPlan } from "./runner.ts";
 
 type SessionFields = {
@@ -26,15 +30,16 @@ type Session = SessionFields &
 
 type Flags = {
   args: string[];
-  pre: string[];
-  post: string[];
+  prepend: string[];
+  append: string[];
   model: string | undefined;
   thinking: string | undefined;
   base: string;
 };
 
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
-const piBin = process.env.PI_BIN ?? "pi";
+const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
 
 function fail(message: string): never {
   throw new Error(message);
@@ -140,17 +145,17 @@ function writeSession(sessions: string, session: Session): void {
 }
 
 function parseFlags(values: string[]): Flags {
-  const flags: Flags = { args: [], pre: [], post: [], model: undefined, thinking: undefined, base: "HEAD" };
+  const flags: Flags = { args: [], prepend: [], append: [], model: undefined, thinking: undefined, base: "HEAD" };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index]!;
-    if (!["--pre", "--post", "--model", "--thinking", "--base"].includes(value)) {
+    if (!["--prepend", "--append", "--model", "--thinking", "--base"].includes(value)) {
       flags.args.push(value);
       continue;
     }
     const next = values[index + 1];
     if (!next) fail(msg("requires-a-value", { flag: value }));
-    if (value === "--pre") flags.pre.push(next);
-    if (value === "--post") flags.post.push(next);
+    if (value === "--prepend") flags.prepend.push(next);
+    if (value === "--append") flags.append.push(next);
     if (value === "--model") flags.model = next;
     if (value === "--thinking") flags.thinking = next;
     if (value === "--base") flags.base = next;
@@ -184,11 +189,10 @@ function shell(command: string, cwd: string): string {
   return result.stdout.trimEnd();
 }
 
-// output-append blocks run traced (`+ command` lines interleaved with their
-// output) so the orchestrator sees what produced each result without the
-// prompt having to document its own commands. They are a best-effort appendix:
-// a failing command's error text appears in the trace, but never fails the run
-// it decorates — so blocks need no defensive guards.
+// Output shell blocks run traced (`+ command` lines interleaved with their
+// output) so the orchestrator sees what produced each result. They are
+// best-effort: a failing command's error text appears in the trace, but never
+// fails the run they decorate.
 function tracedShell(command: string, cwd: string): string {
   const result = spawnSync("sh", ["-c", `exec 2>&1\nset -x\n${command}`], { cwd, encoding: "utf8" });
   if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
@@ -482,6 +486,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
 }
 
 function composePrompt(command: PromptCommand, worktree: string, args: string[], flags: Flags): string {
+  const preRunOutput = command.preRunShell ? shell(command.preRunShell, worktree) : "";
   const injections: Record<string, string> = {};
   injections.base = flags.base;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
@@ -495,7 +500,7 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
   const readFiles = (paths: string[]) => paths.map((path) => readFileSync(resolve(path), "utf8")).join("\n\n");
   const guidance = command.lifecycle === "direct" ? "" : command.consult;
   const templateArgs = command.lifecycle === "create" || command.lifecycle === "in-place" ? args.slice(1) : args;
-  return [readFiles(flags.pre), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.post)]
+  return [preRunOutput, readFiles(flags.prepend), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.append)]
     .filter(Boolean)
     .join("\n\n");
 }
@@ -505,8 +510,10 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
-  const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models);
-  for (const path of [...flags.pre, ...flags.post]) {
+  const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+  const registeredModels = registry.getAll().map(({ provider, id }) => `${provider}/${id}`);
+  const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models, registeredModels);
+  for (const path of [...flags.prepend, ...flags.append]) {
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
   const dirs = sessionDirs(project);
@@ -582,8 +589,23 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
 
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
   const result = await rpcRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
-  process.stdout.write(`${result}\n`);
-  if (command.outputAppend) process.stdout.write(`${tracedShell(command.outputAppend, session.worktree)}\n`);
+  for (const entry of command.output) {
+    switch (entry.kind) {
+      case "pi":
+        process.stdout.write(`${result}\n`);
+        break;
+      case "text":
+        process.stdout.write(entry.text);
+        break;
+      case "shell":
+        process.stdout.write(`${tracedShell(entry.shell, session.worktree)}\n`);
+        break;
+      default: {
+        const unknownEntry: never = entry;
+        fail(msg("unknown-output-entry", { entry: String(unknownEntry) }));
+      }
+    }
+  }
   if (session.kind === "worktree" && command.sandbox === "worktree-write") {
     if (rebaseInProgress(session.worktree)) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
@@ -782,6 +804,7 @@ function help(): void {
 }
 
 async function main(argv: string[]): Promise<void> {
+  refreshInstructions(home, process.cwd());
   const [name, ...values] = argv;
   if (!name || name === "help") return help();
   const project = process.cwd();

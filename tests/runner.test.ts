@@ -69,7 +69,11 @@ function makePiForClaudeHome(root: string): string {
   const piForClaudeHome = join(root, "pi-for-claude-home");
   mkdirSync(join(piForClaudeHome, "prompts"), { recursive: true });
   cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(piForClaudeHome, "prompts/strings.json"));
-  writeFileSync(join(piForClaudeHome, "models.json"), '{"default":"openai-codex/gpt-test"}\n');
+  cpSync(
+    join(import.meta.dirname, "../prompts/pi-for-claude-instructions.md"),
+    join(piForClaudeHome, "prompts/pi-for-claude-instructions.md"),
+  );
+  writeFileSync(join(piForClaudeHome, "models.json"), '{"default":{"model":"openai-codex/gpt-test","thinking":"high"}}\n');
   writeFileSync(
     join(piForClaudeHome, "prompts", "implement-in-worktree.md"),
     `---
@@ -81,8 +85,18 @@ sandbox: worktree-write
 worktree: create
 session: new
 consult: Ask when blocked
-output-append: |
-  echo appended
+pre-run-shell: |
+  printf 'Context generated before Pi runs.'
+output:
+  - text: |
+      Before Pi:
+  - shell: |
+      echo before
+  - pi
+  - text: |
+      After Pi:
+  - shell: |
+      echo after
 ---
 Do not run git commit or git push.
 $plan
@@ -227,9 +241,9 @@ process.stdin.on("data", chunk => {
   });
 
   const worktree = join(realpathSync(root), ".agents/worktrees/fix-auth");
-  assert.match(output, /Implemented auth\./);
-  assert.match(output, /\+ echo appended\nappended/, "output-append shows each command with its output");
+  assert.match(output, /Before Pi:\n\+ echo before\nbefore\nImplemented auth\.\nAfter Pi:\n\+ echo after\nafter/);
   assert.equal(git(worktree, "branch", "--show-current"), "pi/fix-auth");
+  assert.match(readFileSync(captured, "utf8"), /^Context generated before Pi runs\./);
   assert.match(readFileSync(captured, "utf8"), /Fix the auth flow\./);
   assert.match(readFileSync(captured, "utf8"), /Do not run git commit or git push/);
 
@@ -343,6 +357,27 @@ test("view requires exactly one matching session JSONL", () => {
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Expected one Pi JSONL for session 'same', found 2/);
+});
+
+test("view uses the packaged Pi instead of a PATH executable", () => {
+  const root = realpathSync(scratchRepo("pi-for-claude-packaged-pi-"));
+  const sessions = join(root, ".agents", "sessions");
+  const commands = join(root, "commands");
+  mkdirSync(sessions, { recursive: true });
+  mkdirSync(commands);
+  const source = join(sessions, "2026-01-01T00-00-00-000Z_packaged-pi.jsonl");
+  const output = join(sessions, "2026-01-01T00-00-00-000Z_packaged-pi.html");
+  writeFileSync(source, `${JSON.stringify({ type: "session", version: 3, id: "packaged-pi", timestamp: createdAt, cwd: root })}\n`);
+
+  const pathPi = join(commands, "pi");
+  writeFileSync(pathPi, "#!/bin/sh\nexit 99\n");
+  chmodSync(pathPi, 0o755);
+
+  execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "view", "packaged-pi", "--no-open"], {
+    cwd: root,
+    env: { ...process.env, PI_BIN: undefined, PATH: `${commands}:${process.env.PATH}` },
+  });
+  assert.equal(existsSync(output), true);
 });
 
 test("rpcRun passes the sandboxed bash allowlist in every mode", () => {
@@ -548,7 +583,7 @@ test("failures before and during a run fail fast without burning the session id"
   const missingPlan = run({}, "absent.md");
   assert.equal(missingPlan.status, 1);
   assert.match(missingPlan.stderr, /Plan file does not exist/);
-  const missingAttachment = run({}, "plan.md", "--pre", "absent.txt");
+  const missingAttachment = run({}, "plan.md", "--prepend", "absent.txt");
   assert.equal(missingAttachment.status, 1);
   assert.match(missingAttachment.stderr, /Attachment file does not exist/);
   assert.equal(existsSync(worktree), false);

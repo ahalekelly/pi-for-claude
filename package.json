@@ -1,15 +1,40 @@
 {
   "name": "pi-for-claude",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Allow Claude Code to delegate tasks to the Pi coding agent.",
+  "license": "MIT",
+  "author": "ahalekelly",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ahalekelly/pi-for-claude.git"
+  },
+  "bugs": "https://github.com/ahalekelly/pi-for-claude/issues",
+  "homepage": "https://github.com/ahalekelly/pi-for-claude#readme",
   "type": "module",
+  "bin": {
+    "pi-for-claude": "dist/pi-for-claude.js"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "files": [
+    "dist",
+    "extensions",
+    "models.json",
+    "prompts",
+    "src"
+  ],
   "scripts": {
-    "test": "node --test tests/core.test.ts tests/runner.test.ts tests/sandbox.test.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build && npm run update-instructions",
+    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts",
+    "update-instructions": "node dist/update-instructions.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.80.6",
     "@earendil-works/pi-coding-agent": "0.80.6",
-    "@sysid/sandbox-runtime-improved": "0.0.43-sysid.6"
+    "@sysid/sandbox-runtime-improved": "0.0.43-sysid.6",
+    "typebox": "1.1.38"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
