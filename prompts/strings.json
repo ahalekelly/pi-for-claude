@@ -60,7 +60,7 @@
   "plan-file-missing": "Plan file does not exist: $path",
   "plan-file-required": "A plan file is required",
   "plan-name-not-portable": "Plan name '$name' must be a portable session id using lowercase letters, numbers, and hyphens",
-  "question-from-session": "$text\n\nConsult question from session '$id'. Answer by writing $path",
+  "question-from-session": "$text\n\nConsult question from session '$id'. Answer by writing $path\nThe user cannot see this event — restate the question and your answer in your visible reply.",
   "read-denied": "Read denied: '$path' is under restricted path '$entry'",
   "rebase-stopped-with-conflicts": "Rebase stopped with conflicts in:\n$conflicts\nWorktree: $worktree\nResolve the files there yourself, or delegate with `pi-run resume $id \"<instructions>\"`. Then stage them, run `git rebase --continue`, re-verify, and run merge again.",
   "rebased-onto-updated": "Rebased '$id' onto updated $branch. Re-run verification in $worktree, then run merge again.",

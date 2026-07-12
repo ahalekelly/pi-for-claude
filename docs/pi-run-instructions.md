@@ -20,7 +20,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    Monitor({ command: "pi-run watch <session>", description: "pi consult for session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
-   Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. Monitor event bodies are not rendered in the user's UI, so when you handle a consult, state the question and your answer in your visible reply. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
+   Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
    
 4. While the subagent is running you can also redirect it with `steer`, `queue`, and `interrupt`.
 
