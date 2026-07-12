@@ -1,0 +1,35 @@
+{
+  "network": {
+    "allowedDomains": [
+      "api.github.com",
+      "github.com",
+      "*.github.com",
+      "npmjs.org",
+      "*.npmjs.org",
+      "pypi.org",
+      "*.pypi.org"
+    ],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": [
+      "~/.agents/secrets.env",
+      "~/.secrets.env",
+      "~/.ssh",
+      "~/.aws",
+      "~/.gnupg",
+      "~/.config/gcloud"
+    ],
+    "allowWrite": [".", "/tmp/claude"],
+    "denyWrite": [
+      ".git",
+      "**/.git/**",
+      "~/.npm/_logs/**",
+      "~/.claude/debug/**",
+      ".env",
+      ".env.*",
+      "*.pem",
+      "*.key"
+    ]
+  }
+}

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node "$HOME/.agents/pi-run/src/pi-run.ts" "$@"

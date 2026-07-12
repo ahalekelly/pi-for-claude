@@ -1,0 +1,8 @@
+{
+  "default": "openai-codex/gpt-5.6-terra",
+  "best": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "thinking": "high"
+  },
+  "cheap": "openai-codex/gpt-5.6-luna"
+}
