@@ -646,7 +646,7 @@ test("run warns once per complete interval when its event log goes silent", asyn
   writeFileSync(
     fakePi,
     `#!/usr/bin/env node
-process.stdin.once("data", () => setInterval(() => {}, 1000));
+process.stdin.once("data", () => setInterval(() => process.stderr.write("still alive\\n"), 50));
 `,
   );
   chmodSync(fakePi, 0o755);
@@ -766,7 +766,7 @@ process.stdin.on("data", chunk => {
   const deadline = Date.now() + 15000;
   const waitUntil = async (predicate: () => boolean) => {
     while (!predicate()) {
-      if (Date.now() > deadline) assert.fail("timed out waiting for watch output");
+      if (Date.now() > deadline) assert.fail("timed out waiting for consult output");
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
   };

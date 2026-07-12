@@ -30,7 +30,7 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 ## In-place workflow
 
-1. Write the plan to `.agents/plans/<session>.md` in the project directory, then launch `pi-run run .agents/plans/<session>.md`. In a non-git project, this directory is the project root and every pi-run command for the session must run there.
+1. Write the plan to `.agents/plans/<session>.md` in the project directory. In a non-git project, this directory is the project root and every pi-run command for the session must run there.
 
 2. Launch `pi-run run .agents/plans/<session>.md` directly in one persistent Monitor. Steer, queue, or interrupt the session as usual.
 

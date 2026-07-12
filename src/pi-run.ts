@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -235,6 +235,9 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     if (live) fail(msg("session-currently-running", { id: session.id }));
     rmSync(control); // stale socket left by a crashed run
   }
+  const startedAt = new Date();
+  appendFileSync(log, "");
+  utimesSync(log, startedAt, startedAt);
 
   const args = [
     "--mode", "rpc",
@@ -272,7 +275,9 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
   // still goes to the log; only this known-benign line is kept off the console.
   let stderrTail = "";
   child.stderr.on("data", (chunk: string) => {
+    const lastEventAt = statSync(log).mtime;
     appendFileSync(log, chunk);
+    utimesSync(log, lastEventAt, lastEventAt);
     stderrTail += chunk;
     let newline;
     while ((newline = stderrTail.indexOf("\n")) !== -1) {
@@ -325,9 +330,16 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
       if (existsSync(question)) {
         warnedIntervals = 0;
         if (questionAnnounced) return;
+        let text: string;
+        try {
+          text = readFileSync(question, "utf8").trim();
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+          throw error;
+        }
         process.stdout.write(`${msg("question-from-session", {
           id: session.id,
-          text: readFileSync(question, "utf8").trim(),
+          text,
           path: join(sessions, `${session.id}.answer.md`),
         })}\n`);
         questionAnnounced = true;
