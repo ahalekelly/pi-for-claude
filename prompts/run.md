@@ -8,8 +8,9 @@ worktree: create
 session: new
 consult: Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
 output-append: |
-  git status --short
-  git diff --stat
+  main_branch="$(git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." branch --show-current)"
+  git log --oneline --no-decorate "$main_branch..HEAD"
+  git diff --stat "$main_branch...HEAD"
 ---
 Implement the plan below. It is also on disk at $plan_path if you need to re-read it later.
 
@@ -17,7 +18,7 @@ Your environment: you are in a git worktree on a private session branch, working
 
 Consulting the orchestrator: `consult_orchestrator(question)` blocks until the orchestrator answers, up to ten minutes. On timeout, proceed with your best judgment and flag the assumption in your summary.
 
-Handing back: finish with a clean tree and your work committed with well-written messages. A single commit per logical change is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` — uncommitted leftovers block the merge. If main moves while you work, rebase onto it before verification and again right before finishing. If you hand back a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to you once; a second unclean handback fails the run.
+Handing back: Before testing your changes, always rebase onto main. If there is a merge conflict and it's not clear what to do, consult the orchestrator. Finish with a clean tree and your work committed with well-written messages. One commit per feature is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` if they should be kept — uncommitted leftovers block the merge. If you hand back a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to you once; a second unclean handback fails the run.
 
 After you finish, the orchestrator reviews your commit and may resume this conversation with follow-up requests. Acceptance is `pi-run merge`, which:
 
