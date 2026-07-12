@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -272,7 +272,7 @@ process.stdin.on("data", chunk => {
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
 });
 
-test("view exports beside the session JSONL and opens it unless disabled", () => {
+test("view exports once with --no-open and live-reloads an opened page", async (t) => {
   const root = realpathSync(scratchRepo("pi-for-claude-view-"));
   const sessions = join(root, ".agents", "sessions");
   const commands = join(root, "commands");
@@ -289,7 +289,7 @@ test("view exports beside the session JSONL and opens it unless disabled", () =>
     `#!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
 if (process.argv[2] !== "--export") process.exit(2);
-writeFileSync(process.argv[4], "exported: " + readFileSync(process.argv[3], "utf8"));
+writeFileSync(process.argv[4], "<body>exported: " + readFileSync(process.argv[3], "utf8") + "</body>");
 console.log("Exported to: " + process.argv[4]);
 `,
   );
@@ -302,11 +302,29 @@ console.log("Exported to: " + process.argv[4]);
   const env = { ...process.env, PI_BIN: fakePi, OPENED_PATH: opened, PATH: `${commands}:${process.env.PATH}` };
   const exported = execFileSync(process.execPath, [cli, "view", "view-me", "--no-open"], { cwd: root, env, encoding: "utf8" });
   assert.equal(exported, `Exported to: ${output}\n`);
-  assert.equal(readFileSync(output, "utf8"), "exported: session data\n");
+  assert.equal(readFileSync(output, "utf8"), "<body>exported: session data\n</body>");
   assert.equal(existsSync(opened), false);
 
-  execFileSync(process.execPath, [cli, "view", "view-me"], { cwd: root, env });
-  assert.equal(readFileSync(opened, "utf8"), output);
+  const viewed = spawn(process.execPath, [cli, "view", "view-me"], { cwd: root, env });
+  t.after(() => viewed.kill());
+  for (let attempts = 0; !existsSync(opened) && attempts < 100; attempts += 1) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  assert.equal(existsSync(opened), true);
+  const url = readFileSync(opened, "utf8");
+  assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+  assert.match(await (await fetch(url)).text(), /new EventSource\("\/events"\)/);
+
+  const events = await fetch(`${url}events`);
+  const reader = events.body!.getReader();
+  await reader.read();
+  appendFileSync(source, "more data\n");
+  const update = await reader.read();
+  assert.equal(new TextDecoder().decode(update.value), "data: reload\n\n");
+  assert.equal(readFileSync(output, "utf8"), "<body>exported: session data\nmore data\n</body>");
+  await reader.cancel();
+  viewed.kill();
+  await new Promise((resolveExit) => viewed.once("exit", resolveExit));
 });
 
 test("view requires exactly one matching session JSONL", () => {

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -630,20 +631,91 @@ function listSessions(project: string): void {
   }
 }
 
-function view(project: string, values: string[]): void {
-  const id = values[0];
-  if (!id || values.length > 2 || (values.length === 2 && values[1] !== "--no-open")) fail(msg("view-usage"));
-  const source = piSessionPath(sessionDirs(project).sessions, id);
-  const output = `${source.slice(0, -".jsonl".length)}.html`;
+function exportSession(source: string, output: string): void {
   const exported = spawnSync(piBin, ["--export", source, output], { encoding: "utf8" });
   if (exported.error) fail(msg("could-not-run", { command: piBin, error: exported.error.message }));
   if (exported.status !== 0) fail(exported.stderr.trim() || msg("command-failed", { command: `${piBin} --export` }));
   process.stdout.write(exported.stdout);
+}
+
+function liveSessionHtml(output: string): string {
+  const html = readFileSync(output, "utf8");
+  if (!html.includes("</body>")) fail(msg("view-html-missing-body", { output }));
+  return html.replace("</body>", '<script>new EventSource("/events").onmessage=()=>location.reload()</script></body>');
+}
+
+async function view(project: string, values: string[]): Promise<void> {
+  const id = values[0];
+  if (!id || values.length > 2 || (values.length === 2 && values[1] !== "--no-open")) fail(msg("view-usage"));
+  const source = piSessionPath(sessionDirs(project).sessions, id);
+  const output = `${source.slice(0, -".jsonl".length)}.html`;
+  exportSession(source, output);
   if (values[1] === "--no-open") return;
 
-  const opened = spawnSync("open", [output], { encoding: "utf8" });
-  if (opened.error) fail(msg("could-not-run", { command: "open", error: opened.error.message }));
-  if (opened.status !== 0) fail(opened.stderr.trim() || msg("command-failed", { command: "open" }));
+  let html = liveSessionHtml(output);
+  const clients = new Set<ServerResponse>();
+  const server = createHttpServer((request, response) => {
+    if (request.url === "/events") {
+      response.writeHead(200, {
+        "Cache-Control": "no-cache",
+        "Content-Type": "text/event-stream",
+        Connection: "keep-alive",
+      });
+      response.write(": connected\n\n");
+      clients.add(response);
+      request.once("close", () => clients.delete(response));
+      return;
+    }
+    if (request.url !== "/") {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { "Cache-Control": "no-store", "Content-Type": "text/html; charset=utf-8" });
+    response.end(html);
+  });
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    fail(msg("view-server-address"));
+  }
+  const url = `http://127.0.0.1:${address.port}/`;
+
+  const opened = spawnSync("open", [url], { encoding: "utf8" });
+  if (opened.error || opened.status !== 0) {
+    server.close();
+    if (opened.error) fail(msg("could-not-run", { command: "open", error: opened.error.message }));
+    fail(opened.stderr.trim() || msg("command-failed", { command: "open" }));
+  }
+  process.stdout.write(`${msg("view-watching", { source })}\n`);
+
+  await new Promise<void>((_resolveWatch, reject) => {
+    let timer: NodeJS.Timeout | undefined;
+    const watcher = watch(source);
+    const stop = (error: unknown) => {
+      watcher.close();
+      server.closeAllConnections();
+      server.close();
+      reject(error);
+    };
+    watcher.on("change", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          exportSession(source, output);
+          html = liveSessionHtml(output);
+          for (const client of clients) client.write("data: reload\n\n");
+        } catch (error) {
+          stop(error);
+        }
+      }, 100);
+    });
+    watcher.once("error", stop);
+    server.once("error", stop);
+  });
 }
 
 function merge(project: string, id: string): void {
