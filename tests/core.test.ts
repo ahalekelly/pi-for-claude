@@ -36,6 +36,35 @@ Implement $plan on $branch.
   });
 });
 
+test("parsePrompt supports in-place project writes", () => {
+  assert.deepEqual(
+    parsePrompt(`---
+description: Implement in place
+argument-hint: "<plan-file>"
+model: default
+thinking: high
+sandbox: project-write
+worktree: none
+session: new
+consult: Ask when blocked
+---
+$plan
+`),
+    {
+      description: "Implement in place",
+      argumentHint: "<plan-file>",
+      model: "default",
+      thinking: { kind: "prompt", level: "high" },
+      lifecycle: "in-place",
+      sandbox: "project-write",
+      consult: "Ask when blocked",
+      inject: {},
+      outputAppend: "",
+      body: "$plan\n",
+    },
+  );
+});
+
 test("renderTemplate expands pi arguments and injected values", () => {
   assert.equal(
     renderTemplate(

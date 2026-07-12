@@ -123,10 +123,10 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   const cwd = process.cwd();
   const localBash = createBashTool(cwd);
   const mode = process.env.PI_RUN_SANDBOX_MODE;
-  if (mode !== "worktree-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
+  if (mode !== "worktree-write" && mode !== "project-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
   const readOnly = mode === "read-only";
   const policy = loadPolicy(readOnly);
-  const gitPaths = readOnly ? { allow: [], deny: [] } : gitPolicyPaths(cwd);
+  const gitPaths = mode === "worktree-write" ? gitPolicyPaths(cwd) : { allow: [], deny: [] };
   policy.filesystem.allowWrite.push(...gitPaths.allow);
   policy.filesystem.denyWrite.push(...gitPaths.deny);
   const guardPolicy: FilesystemPolicy = { ...policy.filesystem, gitWrite: gitPaths.allow };

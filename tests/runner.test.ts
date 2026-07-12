@@ -27,6 +27,12 @@ test("mainCheckout resolves the shared checkout from a linked worktree", () => {
   assert.equal(mainCheckout(linked), realpathSync(root));
 });
 
+test("mainCheckout rejects a bare repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-run-bare-"));
+  git(root, "init", "--bare");
+  assert.throws(() => mainCheckout(root), /Bare git repositories are not supported/);
+});
+
 test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", () => {
   assert.equal(sessionIdFromPlan("plans/fix-auth.md"), "fix-auth");
   assert.throws(() => sessionIdFromPlan("plans/Bad Plan.md"), /portable session id/);
@@ -68,7 +74,68 @@ Do not run git commit or git push.
 $plan
 `,
   );
+  writeFileSync(
+    join(piRunHome, "prompts", "run.md"),
+    `---
+description: Implement a plan in place
+argument-hint: "<plan-file>"
+model: default
+thinking: high
+sandbox: project-write
+worktree: none
+session: new
+consult: Ask when blocked
+---
+Make the requested changes.
+$plan
+`,
+  );
+  writeFileSync(
+    join(piRunHome, "prompts", "resume.md"),
+    `---
+description: Continue a session
+argument-hint: "<session> <follow-up>"
+model: default
+thinking: high
+sandbox: worktree-write
+worktree: reuse
+session: continue
+consult: Ask when blocked
+---
+$@
+`,
+  );
   return piRunHome;
+}
+
+function writeInPlacePi(root: string): string {
+  const fakePi = join(root, "in-place-pi.mjs");
+  writeFileSync(
+    fakePi,
+    `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+const valueAfter = flag => process.argv[process.argv.indexOf(flag) + 1];
+let input = "";
+process.stdin.on("data", chunk => {
+  input += chunk;
+  const newline = input.indexOf("\\n");
+  if (newline === -1) return;
+  const command = JSON.parse(input.slice(0, newline));
+  if (command.type !== "prompt") process.exit(2);
+  writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
+  const id = valueAfter("--session-id");
+  const sessionDir = valueAfter("--session-dir");
+  const message = {role:"assistant", content:[{type:"text", text:"Implemented in place."}]};
+  writeFileSync(join(sessionDir, "2026-01-01T00-00-00-000Z_" + id + ".jsonl"), JSON.stringify({type:"session", id}) + "\\n" + JSON.stringify({type:"message", message}) + "\\n");
+  console.log(JSON.stringify({type:"response", id:command.id, command:"prompt", success:true}));
+  console.log(JSON.stringify({type:"message_end", message}));
+  console.log(JSON.stringify({type:"agent_settled"}));
+});
+`,
+  );
+  chmodSync(fakePi, 0o755);
+  return fakePi;
 }
 
 test("run creates an isolated worktree and sends the composed prompt over RPC", () => {
@@ -159,6 +226,94 @@ process.stdin.on("data", chunk => {
   assert.equal(git(root, "rev-list", "--count", "HEAD"), "4", "the session's commits fast-forward onto main verbatim");
   assert.equal(existsSync(worktree), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
+});
+
+test("run edits a non-git project in place and discard preserves its files", () => {
+  const root = mkdtempSync("/tmp/pi-run-in-place-non-git-");
+  writeFileSync(join(root, "change.md"), "Create a file.\n");
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const output = execFileSync(process.execPath, [cli, "run", "change.md"], {
+    encoding: "utf8",
+    cwd: root,
+    env: {
+      ...process.env,
+      PI_BIN: writeInPlacePi(root),
+      PI_RUN_HOME: makePiRunHome(root),
+      WRITTEN_FILE: join(root, "implemented.txt"),
+    },
+  });
+
+  const sessions = join(root, ".agents/sessions");
+  const record = JSON.parse(readFileSync(join(sessions, "change.pi-run.json"), "utf8"));
+  assert.match(output, /Implemented in place\./);
+  assert.equal(record.kind, "in-place");
+  assert.equal(record.worktree, realpathSync(root));
+  assert.equal(readFileSync(join(root, "implemented.txt"), "utf8"), "implemented\n");
+  assert.equal(existsSync(join(root, ".git")), false);
+  assert.equal(existsSync(join(root, ".agents/worktrees/change")), false);
+  assert.equal(execFileSync(process.execPath, [cli, "result", "change"], { encoding: "utf8", cwd: root }), "Implemented in place.\n");
+  assert.match(execFileSync(process.execPath, [cli, "discard", "change"], { encoding: "utf8", cwd: root }), /Discarded 'change'/);
+  assert.equal(existsSync(join(sessions, "change.pi-run.json")), false);
+  assert.equal(readFileSync(join(root, "implemented.txt"), "utf8"), "implemented\n");
+});
+
+test("run in a git project creates no branch or worktree", () => {
+  const root = scratchRepo("pi-run-in-place-git-");
+  writeFileSync(join(root, "change.md"), "Create a file.\n");
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  execFileSync(process.execPath, [cli, "run", "change.md"], {
+    encoding: "utf8",
+    cwd: root,
+    env: {
+      ...process.env,
+      PI_BIN: writeInPlacePi(root),
+      PI_RUN_HOME: makePiRunHome(root),
+      WRITTEN_FILE: join(root, "implemented.txt"),
+    },
+  });
+
+  const record = JSON.parse(readFileSync(join(root, ".agents/sessions/change.pi-run.json"), "utf8"));
+  assert.equal(record.kind, "in-place");
+  assert.equal(record.worktree, realpathSync(root));
+  assert.equal(git(root, "branch", "--list", "pi/change"), "");
+  assert.equal(existsSync(join(root, ".agents/worktrees/change")), false);
+});
+
+test("resume rejects a review session", () => {
+  const root = scratchRepo("pi-run-review-resume-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "review-1.pi-run.json"),
+    JSON.stringify({
+      kind: "review",
+      id: "review-1",
+      command: "review",
+      mainCheckout: root,
+      worktree: root,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }),
+  );
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "resume", "review-1", "Fix it"], {
+    encoding: "utf8",
+    cwd: root,
+    env: { ...process.env, PI_RUN_HOME: makePiRunHome(root) },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /read-only review session and cannot be resumed/);
+});
+
+test("implement-in-worktree requires git", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-run-no-git-"));
+  writeFileSync(join(root, "change.md"), "Create a file.\n");
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "implement-in-worktree", "change.md"], {
+    encoding: "utf8",
+    cwd: root,
+    env: { ...process.env, PI_RUN_HOME: makePiRunHome(root) },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /requires a git repository; use run for in-place work/);
 });
 
 test("failures before and during a run fail fast without burning the session id", () => {
@@ -326,21 +481,6 @@ test("a second unclean handback settles and reports the problem to the orchestra
 test("resume refuses a session whose conversation log is missing", () => {
   const root = scratchRepo("pi-run-amnesia-");
   const piRunHome = makePiRunHome(root);
-  writeFileSync(
-    join(piRunHome, "prompts", "resume.md"),
-    `---
-description: Continue a session
-argument-hint: "<session> <follow-up>"
-model: default
-thinking: high
-sandbox: worktree-write
-worktree: reuse
-session: continue
-consult: Ask when blocked
----
-$@
-`,
-  );
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
@@ -372,12 +512,11 @@ test("watch warns once when a live run's log goes silent", async () => {
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
-    kind: "direct",
+    kind: "review",
     id: "s1",
     command: "review",
     mainCheckout: root,
     worktree: root,
-    baseCommit: git(root, "rev-parse", "HEAD"),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
   const recordPath = join(sessions, "s1.pi-run.json");
@@ -420,17 +559,16 @@ test("watch warns once when a live run's log goes silent", async () => {
   }
 });
 
-test("discard removes a direct session's record without touching git", () => {
+test("discard removes a review session's record without touching git", () => {
   const root = scratchRepo("pi-run-direct-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
-    kind: "direct",
+    kind: "review",
     id: "review-1",
     command: "review",
     mainCheckout: root,
     worktree: root,
-    baseCommit: git(root, "rev-parse", "HEAD"),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
   writeFileSync(join(sessions, "review-1.pi-run.json"), JSON.stringify(record));
@@ -447,12 +585,11 @@ test("watch prints each question once and exits when the session ends", async ()
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
-    kind: "direct",
+    kind: "review",
     id: "w1",
     command: "review",
     mainCheckout: root,
     worktree: root,
-    baseCommit: git(root, "rev-parse", "HEAD"),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
   const recordPath = join(sessions, "w1.pi-run.json");

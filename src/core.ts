@@ -34,6 +34,7 @@ export type PromptCommand = PromptFields &
   (
     | { lifecycle: "create"; sandbox: "worktree-write"; consult: string }
     | { lifecycle: "reuse"; sandbox: "worktree-write"; consult: string }
+    | { lifecycle: "in-place"; sandbox: "project-write"; consult: string }
     | { lifecycle: "direct"; sandbox: "read-only" }
   );
 
@@ -131,7 +132,7 @@ export function parsePrompt(source: string): PromptCommand {
     return value;
   };
 
-  const sandbox = enumValue("sandbox", required("sandbox"), ["worktree-write", "read-only"] as const);
+  const sandbox = enumValue("sandbox", required("sandbox"), ["worktree-write", "project-write", "read-only"] as const);
   const worktree = enumValue("worktree", required("worktree"), ["create", "reuse", "none"] as const);
   const session = enumValue("session", required("session"), ["new", "continue"] as const);
   const lifecycle = `${sandbox}:${worktree}:${session}`;
@@ -151,6 +152,9 @@ export function parsePrompt(source: string): PromptCommand {
   }
   if (lifecycle === "worktree-write:reuse:continue") {
     return { ...fields, lifecycle: "reuse", sandbox: "worktree-write", consult: required("consult") };
+  }
+  if (lifecycle === "project-write:none:new") {
+    return { ...fields, lifecycle: "in-place", sandbox: "project-write", consult: required("consult") };
   }
   if (lifecycle === "read-only:none:new") return { ...fields, lifecycle: "direct", sandbox: "read-only" };
   throw new Error(msg("invalid-prompt-lifecycle", { sandbox, worktree, session }));

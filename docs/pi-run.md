@@ -1,6 +1,6 @@
 # pi-run
 
-`pi-run` delegates implementation and review commands to pi while keeping each implementation isolated in a persistent git worktree. Prompt files define model, thinking, sandbox, worktree, and session behavior; the runner owns git layout, RPC control, and session metadata.
+`pi-run` delegates implementation and review commands to pi. Worktree implementations stay isolated in persistent git worktrees; in-place implementations edit the project directory directly. Prompt files define model, thinking, sandbox, worktree, and session behavior; the runner owns git layout, RPC control, and session metadata.
 
 ## Setup
 
@@ -23,7 +23,7 @@ Unknown labels, malformed config, and missing required settings fail before pi s
 
 ## Implementation workflow
 
-Commands run from inside the project — any subdirectory or linked worktree works; the runner resolves to the main checkout.
+Commands in a git project can run from any subdirectory or linked worktree; the runner resolves to the main checkout.
 
 Write a uniquely named plan, then start a session:
 
@@ -45,34 +45,39 @@ If main moved, `merge` rebases and stops so verification can be rerun against th
 
 Resolve the merge, stage the changes, run `git rebase --continue`, rerun verification, then invoke `merge` again. The runner never chooses a conflict resolution.
 
-Use `pi-run discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
+Use `pi-run discard fix-auth` to explicitly delete an unwanted session worktree and branch. Discarding a review or in-place session removes only its metadata record. Either way the conversation JSONL and event log are kept, so `result` keeps working.
+
+### In-place sessions
+
+`pi-run run <plan-file>` edits the project directory directly without creating a branch or worktree, and it works without git. In a non-git project, run every pi-run command from the project root: the root is the resolved current directory, so a different directory cannot find the session and fails with `Unknown session`. Review in-place changes normally, then use `discard <session>` to close the session; there is no merge step and discard leaves project files in place.
 
 ## Commands
 
 Prompt commands:
 
 - `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session.
-- `resume <session> <follow-up>` — continue the same pi conversation and worktree.
+- `run <plan-file>` — implement a plan directly in the project directory.
+- `resume <session> <follow-up>` — continue the same pi conversation and worktree or project directory.
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label.
 
 Built-in commands do not call a model:
 
-- `sessions` — list session ids, originating commands, and worktrees.
+- `sessions` — list session ids, originating commands, and directories.
 - `result <session>` — print the last completed assistant response.
 - `steer <session> <message>` — deliver a message after the current tool calls and before the next model call.
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
 - `interrupt <session>` — abort the active turn; the session remains resumable.
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the session is merged or discarded.
 - `merge <session>` — rebase, fast-forward the session’s commits onto main, and clean up.
-- `discard <session>` — force-remove the worktree and branch, or just the record for review sessions.
+- `discard <session>` — force-remove a worktree and branch, or just the record for review and in-place sessions.
 - `help` — render prompt names, argument hints, and descriptions.
 
 Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments plus `--model <label-or-id>`, `--thinking <level>`, and `--base <ref>`. Paths are resolved from the current directory. Model and thinking flags override prompt frontmatter.
 
 ## Sessions and control
 
-Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Starting `implement-in-worktree` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
+Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Outside git, `<main>` is the project root. Starting `implement-in-worktree` or `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 
@@ -80,11 +85,12 @@ When launching a run, start one Monitor running `pi-run watch <session>`. It liv
 
 ## Sandbox
 
-Implementation runs allow writes only in the session worktree and temporary storage. Review runs allow temporary writes only. Both modes:
+`worktree-write` implementation runs allow writes only in the session worktree and temporary storage. `project-write` in-place runs allow writes in the project directory and temporary storage, but never grant git writes. `read-only` review runs allow temporary writes only. All modes:
 
 - wrap bash with the OS sandbox;
 - guard pi’s built-in read, write, edit, grep, find, and list tools;
-- scope git writes to the session: pi can stage, commit, and rebase its own branch and append to `info/exclude`, while hooks, config (including `config.worktree`), other branches, the `commondir`/`gitdir` worktree pointers, and the worktree's `.git` file stay write-blocked;
+- scope git writes for `worktree-write` to the session: pi can stage, commit, and rebase its own branch and append to `info/exclude`, while hooks, config (including `config.worktree`), other branches, the `commondir`/`gitdir` worktree pointers, and the worktree's `.git` file stay write-blocked;
+- block all `.git` writes for `project-write`;
 - block reads of configured secret and credential paths;
 - limit network access from bash to the domains in `extensions/sandbox/sandbox.json`;
 - fail closed: if OS sandbox initialization fails, bash remains blocked.

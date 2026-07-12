@@ -6,21 +6,21 @@ import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
-import { git, mainCheckout, sessionIdFromPlan } from "./runner.ts";
+import { git, isGitRepository, mainCheckout, sessionIdFromPlan } from "./runner.ts";
 
 type SessionFields = {
   id: string;
   command: string;
   mainCheckout: string;
   worktree: string;
-  baseCommit: string;
   createdAt: string;
 };
 
 type Session = SessionFields &
   (
-    | { kind: "worktree"; branch: string; mergeState: { kind: "unrebased" } | { kind: "rebased"; onto: string } }
-    | { kind: "direct" }
+    | { kind: "worktree"; baseCommit: string; branch: string; mergeState: { kind: "unrebased" } | { kind: "rebased"; onto: string } }
+    | { kind: "in-place" }
+    | { kind: "review" }
   );
 
 type Flags = {
@@ -83,17 +83,21 @@ function readSession(sessions: string, id: string): Session {
   const value: unknown = JSON.parse(readFileSync(path, "utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(msg("malformed-session-metadata", { path }));
   const record = value as Record<string, unknown>;
-  const common = ["id", "command", "mainCheckout", "worktree", "baseCommit", "createdAt"];
+  const common = ["id", "command", "mainCheckout", "worktree", "createdAt"];
   if (common.some((field) => typeof record[field] !== "string") || record.id !== id) fail(msg("malformed-session-metadata", { path }));
-  if (record.kind === "direct" && Object.keys(record).every((key) => [...common, "kind"].includes(key))) return record as Session;
-  if (record.kind !== "worktree" || typeof record.branch !== "string") fail(msg("malformed-session-metadata", { path }));
+  const hasOnly = (fields: string[]) => Object.keys(record).every((key) => fields.includes(key));
+  if (record.kind === "in-place" && hasOnly([...common, "kind"])) return record as Session;
+  if (record.kind === "review" && hasOnly([...common, "kind"])) return record as Session;
+  if (record.kind !== "worktree" || typeof record.baseCommit !== "string" || typeof record.branch !== "string") {
+    fail(msg("malformed-session-metadata", { path }));
+  }
   const mergeState = record.mergeState;
   if (!mergeState || typeof mergeState !== "object" || Array.isArray(mergeState)) fail(msg("malformed-session-metadata", { path }));
   const state = mergeState as Record<string, unknown>;
   const validState =
     (state.kind === "unrebased" && Object.keys(state).length === 1) ||
     (state.kind === "rebased" && typeof state.onto === "string" && Object.keys(state).length === 2);
-  if (!validState || !Object.keys(record).every((key) => [...common, "kind", "branch", "mergeState"].includes(key))) {
+  if (!validState || !hasOnly([...common, "kind", "baseCommit", "branch", "mergeState"])) {
     fail(msg("malformed-session-metadata", { path }));
   }
   return record as Session;
@@ -400,7 +404,7 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
   const injections: Record<string, string> = {};
   injections.base = flags.base;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
-  if (command.lifecycle === "create") {
+  if (command.lifecycle === "create" || command.lifecycle === "in-place") {
     const plan = args[0];
     if (!plan) fail(msg("plan-file-required"));
     const planPath = resolve(plan);
@@ -409,7 +413,8 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
   }
   const readFiles = (paths: string[]) => paths.map((path) => readFileSync(resolve(path), "utf8")).join("\n\n");
   const guidance = command.lifecycle === "direct" ? "" : command.consult;
-  return [readFiles(flags.pre), guidance, renderTemplate(command.body, command.lifecycle === "create" ? args.slice(1) : args, injections), readFiles(flags.post)]
+  const templateArgs = command.lifecycle === "create" || command.lifecycle === "in-place" ? args.slice(1) : args;
+  return [readFiles(flags.pre), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.post)]
     .filter(Boolean)
     .join("\n\n");
 }
@@ -424,22 +429,22 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
   const dirs = sessionDirs(project);
+  if (command.lifecycle === "create" && !isGitRepository(dirs.main)) fail(msg("implement-in-worktree-requires-git"));
   let session: Session;
   let promptArgs = flags.args;
 
   if (command.lifecycle === "reuse") {
     const id = flags.args[0];
     if (!id) fail(msg("requires-session-id", { name }));
-    // Direct (read-only) sessions are not rejected here, so resuming one grants the
-    // worktree-write sandbox to the directory the original run could only read.
     session = readSession(dirs.sessions, id);
+    if (session.kind === "review") fail(msg("cannot-resume-review-session", { id }));
     promptArgs = flags.args.slice(1);
     if (!existsSync(session.worktree)) fail(msg("session-worktree-missing", { worktree: session.worktree }));
     // Without its conversation JSONL, pi would silently start an amnesiac
     // session under the same id instead of resuming.
     const conversations = piSessionFiles(dirs.sessions, id);
     if (conversations.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(conversations.length) }));
-  } else if (command.lifecycle === "create") {
+  } else if (command.lifecycle === "create" || command.lifecycle === "in-place") {
     const plan = flags.args[0];
     if (!plan) fail(msg("requires-plan-file", { name }));
     if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
@@ -448,21 +453,32 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     // A merged or discarded session leaves its conversation JSONL behind, which
     // permanently reserves the name; only "resume it" would be a lie here.
     if (piSessionFiles(dirs.sessions, id).length > 0) fail(msg("session-name-burned", { id }));
-    const worktree = join(dirs.worktrees, id);
-    const branch = `pi/${id}`;
-    const baseCommit = git(dirs.main, ["rev-parse", "HEAD"]);
-    git(dirs.main, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
-    session = {
-      kind: "worktree",
-      id,
-      command: name,
-      mainCheckout: dirs.main,
-      worktree,
-      branch,
-      baseCommit,
-      mergeState: { kind: "unrebased" },
-      createdAt: new Date().toISOString(),
-    };
+    if (command.lifecycle === "in-place") {
+      session = {
+        kind: "in-place",
+        id,
+        command: name,
+        mainCheckout: dirs.main,
+        worktree: dirs.main,
+        createdAt: new Date().toISOString(),
+      };
+    } else {
+      const worktree = join(dirs.worktrees, id);
+      const branch = `pi/${id}`;
+      const baseCommit = git(dirs.main, ["rev-parse", "HEAD"]);
+      git(dirs.main, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
+      session = {
+        kind: "worktree",
+        id,
+        command: name,
+        mainCheckout: dirs.main,
+        worktree,
+        branch,
+        baseCommit,
+        mergeState: { kind: "unrebased" },
+        createdAt: new Date().toISOString(),
+      };
+    }
     writeSession(dirs.sessions, session);
   } else {
     let worktree = project;
@@ -473,12 +489,11 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     }
     const id = `${name}-${Date.now()}`;
     session = {
-      kind: "direct",
+      kind: "review",
       id,
       command: name,
       mainCheckout: dirs.main,
       worktree,
-      baseCommit: git(dirs.main, ["rev-parse", "HEAD"]),
       createdAt: new Date().toISOString(),
     };
     writeSession(dirs.sessions, session);
