@@ -31,7 +31,7 @@ Write a uniquely named plan, then start a session:
 pi-run run path/to/fix-auth.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree with a single well-messaged commit. If a run settles with a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to pi once; a second unclean handback fails the run. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt.
+The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to pi once; a second unclean handback fails the run. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt.
 
 After the run:
 
@@ -39,7 +39,7 @@ After the run:
 2. Run the project’s verification in the worktree.
 3. Run `pi-run merge fix-auth`.
 
-`merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. Pi’s single commit lands verbatim; if the branch somehow holds several commits, merge squashes them into one carrying their messages oldest-first, so each merged session is exactly one commit on main either way. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
+`merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. A single commit lands verbatim; several commits are squashed into one carrying their messages oldest-first, so each merged session is exactly one commit on main either way. Uncommitted changes in the worktree make merge fail — have pi commit them, or delete or gitignore stray files during review (ignored files never land and are deleted with the worktree; `<main>/.git/info/exclude` also works). Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
 
 If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress. Resolve them there, or use:
 
