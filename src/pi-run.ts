@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -664,73 +664,10 @@ function help(): void {
   process.stdout.write(msg("help-builtins"));
 }
 
-// The last line of a session log, reading only the file's tail — event logs
-// grow to tens of megabytes. Long RPC event lines are truncated.
-function logTail(path: string): string {
-  const size = statSync(path).size;
-  const length = Math.min(4096, size);
-  if (length === 0) return "";
-  const fd = openSync(path, "r");
-  const buffer = Buffer.alloc(length);
-  readSync(fd, buffer, 0, length, size - length);
-  closeSync(fd);
-  const lines = buffer.toString("utf8").trimEnd().split("\n");
-  const last = (lines[lines.length - 1] ?? "").replace(/"thinkingSignature":"[^"]*"/g, '"thinkingSignature":"…"');
-  return last.length > 500 ? `${last.slice(0, 500)}…` : last;
-}
-
-// Lives as long as the session, not a single run: one watch covers the initial
-// run and every resume, and exits when merge or discard removes the session.
-// Alongside consult questions it emits a stall warning when a live run's event
-// log goes silent — the signature of a hung tool call. Silence during a pending
-// consult is expected (pi blocks on the answer file) and never counts.
-async function watch(project: string, id: string): Promise<void> {
-  const { sessions } = sessionDirs(project);
-  const session = readSession(sessions, id);
-  const record = sessionPath(sessions, id);
-  const question = join(sessions, `${id}.question.md`);
-  const control = join(sessions, `${id}.ctl`);
-  const log = join(sessions, `${sessionPrefix(session)}.log`);
-  const stallMs = 5 * 60 * 1000;
-  // Warns at every full stall interval of silence (5, 10, 15... minutes), so an
-  // unattended hang keeps resurfacing instead of trusting one missed warning.
-  let warnedIntervals = 0;
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  while (existsSync(record)) {
-    if (!existsSync(question) && existsSync(control) && existsSync(log)) {
-      const silentMs = Date.now() - statSync(log).mtimeMs;
-      const intervals = Math.floor(silentMs / stallMs);
-      if (intervals > warnedIntervals) {
-        process.stdout.write(`${msg("session-stalled", { id, minutes: String(Math.round(silentMs / 60000)), last_event: logTail(log) })}\n`);
-      }
-      warnedIntervals = intervals;
-    } else {
-      warnedIntervals = 0;
-    }
-    if (existsSync(question)) {
-      let text: string;
-      try {
-        text = readFileSync(question, "utf8");
-      } catch {
-        continue; // answered between the existence check and the read
-      }
-      process.stdout.write(`${msg("question-from-session", { id, text: text.trim(), path: join(sessions, `${id}.answer.md`) })}\n`);
-      while (existsSync(question) && existsSync(record)) await sleep(500);
-    }
-    await sleep(500);
-  }
-  process.stdout.write(`${msg("session-ended", { id })}\n`);
-}
-
 async function main(argv: string[]): Promise<void> {
   const [name, ...values] = argv;
   if (!name || name === "help") return help();
   const project = process.cwd();
-  if (name === "watch") {
-    const id = values[0];
-    if (!id) fail(msg("requires-session-id", { name }));
-    return watch(project, id);
-  }
   if (name === "sessions") return listSessions(project);
   if (name === "result") {
     const id = values[0];
