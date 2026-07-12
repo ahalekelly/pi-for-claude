@@ -31,7 +31,7 @@ Write a uniquely named plan, then start a session:
 pi-run run path/to/fix-auth.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree or an unfinished rebase, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt. Conflicts against main are not pi’s to resolve — they surface at merge time.
+The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree or an unfinished rebase, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt. Conflicts against main are not pi’s to resolve — they surface at merge time.
 
 After the run:
 

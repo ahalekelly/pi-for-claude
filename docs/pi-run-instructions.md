@@ -2,19 +2,19 @@
 
 Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
-Each implementation runs in its own persistent git worktree and session; state lives under the main checkout's `.agents/scratchpad/`. Commands must be run from inside the project directory. The project directory must be a git repository, feel free to run `git init` if the directory is specific to the project.
+Each implementation runs in its own persistent git worktree and session; state lives under the main checkout's `.agents/`. Commands must be run from inside the project directory. The project directory must be a git repository, feel free to run `git init` if the directory is specific to the project.
 
-1. Write the plan to `.agents/scratchpad/plans/<session>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/scratchpad/worktrees/<session>`, so pick a unique name — starting a `run` with an existing plan basename fails.
+1. Write the plan to `.agents/plans/<session>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/worktrees/<session>`, so pick a unique name — starting a `run` with an existing plan basename fails.
 
 Plan length should be proportional to the task; 1/2th as many tokens as the expected diff is a rough prior.
 
 2. Launch in a `run_in_background` Bash (sandbox off, pi needs provider network access):
 
    ```sh
-   pi-run run .agents/scratchpad/plans/<session>.md
+   pi-run run .agents/plans/<session>.md
    ```
 
-3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for `<session>.answer.md`. Read the question, decide, and write the answer file to unblock the turn; on timeout pi proceeds with its best judgment and reports the assumption.
+3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. On timeout pi proceeds with its best judgment and reports the assumption. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
    
 4. While the subagent is running you can also redirect it:
 
@@ -24,13 +24,13 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
 5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch, and the output of `git log --oneline --no-decorate "$main_branch..HEAD"` and `git diff --stat "$main_branch...HEAD"` will be appended to Pi's response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
-6. Use `pi-run resume <session> "<instructions>"` to ask for further edits, or for minor edits you can edit the worktree files yourself. (`queue` only works while a run is still active)
+6. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. You can use this to ask for fixes or additional features that build on top of the existing work. 
 
-7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and removes the worktree and branch. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
+7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
 
    If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
 
-8. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Discard a session's worktree with `pi-run discard <session>` (never just delete the worktree directory). Once a session worktree is deleted with `merge` or `discard`, the session cannot be resumed, but the session log is still available on disk.
+8. Discard a session's worktree with `pi-run discard <session>` (never just delete the worktree directory). Once a session worktree is deleted with `merge` or `discard`, the session cannot be resumed, but the session logs are still available at `.agents/sessions/<timestamp>_<session>.jsonl` and `.agents/sessions/<session>.log` if you need to review what happened.
 
 Full pi-run command reference:
 
@@ -50,7 +50,7 @@ Full pi-run command reference:
 
 Trailing flags on prompt commands (run/resume/review/adversarial-review):
 
-- `--model <label-or-id>` — override the prompt's model; labels come from `~/.agents/pi-run/models.json` (`default` is gpt-5.6-terra, `best` is gpt-5.6-sol)
+- `--model <label-or-id>` — override the prompt's model; labels come from `~/.agents/pi-run/models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
 - `--thinking <level>` — override the model label's default thinking level
 - `--base <ref>` — diff base for reviews
 - `--pre <file>` / `--post <file>` — repeatable attachments prepended/appended to the prompt; paths resolve from the current directory

@@ -113,7 +113,7 @@ process.stdin.on("data", chunk => {
     },
   });
 
-  const worktree = join(realpathSync(root), ".agents/scratchpad/worktrees/fix-auth");
+  const worktree = join(realpathSync(root), ".agents/worktrees/fix-auth");
   assert.match(output, /Implemented auth\./);
   assert.equal(git(worktree, "branch", "--show-current"), "pi/fix-auth");
   assert.match(readFileSync(captured, "utf8"), /Fix the auth flow\./);
@@ -163,7 +163,7 @@ test("failures before and during a run fail fast without burning the session id"
   writeFileSync(join(root, "plan.md"), "Do the thing.\n");
   const piRunHome = makePiRunHome(root);
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  const worktree = join(root, ".agents/scratchpad/worktrees/plan");
+  const worktree = join(root, ".agents/worktrees/plan");
   const sessionFile = join(root, ".agents/sessions/plan.pi-run.json");
   const run = (env: Record<string, string>, ...args: string[]) =>
     spawnSync(process.execPath, [cli, "run", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
@@ -298,7 +298,7 @@ test("an unclean handback bounces back to pi until it merges cleanly", () => {
   });
   assert.match(output, /Committed\./);
   assert.match(readFileSync(captured, "utf8"), /uncommitted changes/);
-  const worktree = join(realpathSync(root), ".agents/scratchpad/worktrees/plan");
+  const worktree = join(realpathSync(root), ".agents/worktrees/plan");
   assert.equal(git(worktree, "status", "--porcelain"), "");
   assert.equal(git(worktree, "log", "-1", "--format=%s"), "Fix dirt");
 });

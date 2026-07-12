@@ -41,7 +41,7 @@ test("gitWrite grants scoped git paths without opening the rest of .git", () => 
       "/main/.git/info/exclude",
     ],
   };
-  const cwd = "/main/.agents/scratchpad/worktrees/fix-auth";
+  const cwd = "/main/.agents/worktrees/fix-auth";
   assert.equal(writeBlocked("/main/.git/worktrees/fix-auth/index", git, cwd, false), "");
   assert.equal(writeBlocked("/main/.git/objects/ab/cdef", git, cwd, false), "");
   assert.equal(writeBlocked("/main/.git/refs/heads/pi/fix-auth", git, cwd, false), "");
