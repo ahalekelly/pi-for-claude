@@ -300,6 +300,11 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
             continue;
           }
           if (event.type === "message_end") {
+            const message = record(event.message, "RPC message");
+            if (message.stopReason === "error") {
+              failRun(new Error(typeof message.errorMessage === "string" ? message.errorMessage : "Pi reported a model error without a message"));
+              return;
+            }
             const text = assistantText(event.message);
             if (text) state = { kind: "has-result", result: text };
             continue;
@@ -322,9 +327,8 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     });
     child.once("error", failRun);
     child.once("exit", (code) => {
-      if (state.kind === "failed") return;
-      if (state.kind !== "settled") reject(new Error(`pi exited before agent_settled (${code ?? "signal"})`));
-      else resolveRun(state.result);
+      if (state.kind === "settled") resolveRun(state.result);
+      else failRun(new Error(`pi exited before agent_settled (${code ?? "signal"})`));
     });
     send({ type: "prompt", message: prompt });
   });
@@ -338,7 +342,6 @@ function composePrompt(command: PromptCommand, project: string, worktree: string
     const plan = args[0];
     if (!plan) fail("A plan file is required");
     const planPath = fileFromProject(project, plan);
-    if (!existsSync(planPath)) fail(`Plan file does not exist: ${planPath}`);
     injections.plan_path = planPath;
     injections.plan = readFileSync(planPath, "utf8");
   }
@@ -353,6 +356,12 @@ async function runPrompt(name: string, projectValue: string, values: string[]): 
   const project = resolve(projectValue);
   const command = parsePrompt(readFileSync(commandFile(name), "utf8"));
   const flags = parseFlags(values);
+  const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
+  const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
+  const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models);
+  for (const path of [...flags.pre, ...flags.post]) {
+    if (!existsSync(fileFromProject(project, path))) fail(`Attachment file does not exist: ${fileFromProject(project, path)}`);
+  }
   const dirs = sessionDirs(project);
   let session: Session;
   let promptArgs = flags.args;
@@ -366,6 +375,7 @@ async function runPrompt(name: string, projectValue: string, values: string[]): 
   } else if (command.lifecycle === "create") {
     const plan = flags.args[0];
     if (!plan) fail(`${name} requires a plan file`);
+    if (!existsSync(fileFromProject(project, plan))) fail(`Plan file does not exist: ${fileFromProject(project, plan)}`);
     const id = sessionIdFromPlan(plan);
     if (existsSync(sessionPath(dirs.sessions, id)) || piSessionFiles(dirs.sessions, id).length > 0) {
       fail(`Session '${id}' already exists; resume it or choose a new plan name`);
@@ -406,9 +416,6 @@ async function runPrompt(name: string, projectValue: string, values: string[]): 
     writeSession(dirs.sessions, session);
   }
 
-  const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
-  const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
-  const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models);
   const prompt = composePrompt(command, project, session.worktree, promptArgs, flags);
   const result = await rpcRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   process.stdout.write(`${result}\n`);

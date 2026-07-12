@@ -31,8 +31,8 @@ test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", ()
   assert.throws(() => sessionIdFromPlan("plans/Bad Plan.md"), /portable session id/);
 });
 
-test("run creates an isolated worktree and sends the composed prompt over RPC", () => {
-  const root = mkdtempSync("/tmp/pi-run-e2e-");
+function scratchRepo(prefix: string): string {
+  const root = mkdtempSync(`/tmp/${prefix}`);
   git(root, "init", "-b", "main");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "user.email", "pi-run@example.test");
@@ -41,10 +41,10 @@ test("run creates an isolated worktree and sends the composed prompt over RPC", 
   writeFileSync(join(root, "README.md"), "test\n");
   git(root, "add", ".gitignore", "README.md");
   git(root, "commit", "-m", "initial");
-  writeFileSync(join(root, "fix-auth.md"), "Fix the auth flow.\n");
+  return root;
+}
 
-  const fakePi = join(root, "fake-pi.mjs");
-  const captured = join(root, "captured.txt");
+function makePiRunHome(root: string): string {
   const piRunHome = join(root, "pi-run-home");
   mkdirSync(join(piRunHome, "prompts"), { recursive: true });
   writeFileSync(join(piRunHome, "models.json"), '{"default":"openai-codex/gpt-test"}\n');
@@ -64,6 +64,16 @@ Do not run git commit or git push.
 $plan
 `,
   );
+  return piRunHome;
+}
+
+test("run creates an isolated worktree and sends the composed prompt over RPC", () => {
+  const root = scratchRepo("pi-run-e2e-");
+  writeFileSync(join(root, "fix-auth.md"), "Fix the auth flow.\n");
+
+  const fakePi = join(root, "fake-pi.mjs");
+  const captured = join(root, "captured.txt");
+  const piRunHome = makePiRunHome(root);
   writeFileSync(
     fakePi,
     `#!/usr/bin/env node
@@ -130,4 +140,57 @@ process.stdin.on("data", chunk => {
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "resolved\n");
   assert.equal(existsSync(worktree), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", root, "fix-auth"], { encoding: "utf8" }), "Implemented auth.\n");
+});
+
+test("failures before and during a run fail fast without burning the session id", () => {
+  const root = scratchRepo("pi-run-fail-");
+  writeFileSync(join(root, "plan.md"), "Do the thing.\n");
+  const piRunHome = makePiRunHome(root);
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const worktree = join(root, ".agents/scratchpad/worktrees/plan");
+  const sessionFile = join(root, ".agents/scratchpad/pi/sessions/plan.pi-run.json");
+  const run = (env: Record<string, string>, ...args: string[]) =>
+    spawnSync(process.execPath, [cli, "run", root, ...args], { encoding: "utf8", env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
+
+  const badModel = run({}, "plan.md", "--model", "nope");
+  assert.equal(badModel.status, 1);
+  assert.match(badModel.stderr, /Unknown model label 'nope'/);
+  const missingPlan = run({}, "absent.md");
+  assert.equal(missingPlan.status, 1);
+  assert.match(missingPlan.stderr, /Plan file does not exist/);
+  const missingAttachment = run({}, "plan.md", "--pre", "absent.txt");
+  assert.equal(missingAttachment.status, 1);
+  assert.match(missingAttachment.stderr, /Attachment file does not exist/);
+  assert.equal(existsSync(worktree), false);
+  assert.equal(existsSync(sessionFile), false);
+
+  const crashPi = join(root, "crash-pi.mjs");
+  writeFileSync(crashPi, `#!/usr/bin/env node\nprocess.stderr.write("boom\\n");\nprocess.exit(2);\n`);
+  chmodSync(crashPi, 0o755);
+  const crashed = run({ PI_BIN: crashPi }, "plan.md");
+  assert.equal(crashed.signal, null, "pi-run must exit on its own instead of hanging");
+  assert.equal(crashed.status, 1);
+  assert.match(crashed.stderr, /pi exited before agent_settled \(2\)/);
+
+  const errorPi = join(root, "error-pi.mjs");
+  writeFileSync(
+    errorPi,
+    `#!/usr/bin/env node
+let input = "";
+process.stdin.on("data", chunk => {
+  input += chunk;
+  if (!input.includes("\\n")) return;
+  const command = JSON.parse(input.split("\\n")[0]);
+  console.log(JSON.stringify({type:"response", id:command.id, command:"prompt", success:true}));
+  console.log(JSON.stringify({type:"message_end", message:{role:"assistant", content:[], stopReason:"error", errorMessage:"Codex error: The usage limit has been reached"}}));
+  console.log(JSON.stringify({type:"agent_settled"}));
+});
+`,
+  );
+  chmodSync(errorPi, 0o755);
+  writeFileSync(join(root, "plan2.md"), "Do the thing.\n");
+  const provider = run({ PI_BIN: errorPi }, "plan2.md");
+  assert.equal(provider.signal, null, "pi-run must exit on its own instead of hanging");
+  assert.equal(provider.status, 1);
+  assert.match(provider.stderr, /The usage limit has been reached/);
 });
