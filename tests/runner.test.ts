@@ -272,7 +272,7 @@ process.stdin.on("data", chunk => {
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
 });
 
-test("view exports once with --no-open and live-reloads an opened page", async (t) => {
+test("view exports once by default and live-reloads with --live", async (t) => {
   const root = realpathSync(scratchRepo("pi-for-claude-view-"));
   const sessions = join(root, ".agents", "sessions");
   const commands = join(root, "commands");
@@ -305,9 +305,12 @@ console.log("Exported to: " + process.argv[4]);
   assert.equal(readFileSync(output, "utf8"), "<body>exported: session data\n</body>");
   assert.equal(existsSync(opened), false);
 
-  const viewed = spawn(process.execPath, [cli, "view", "view-me"], { cwd: root, env });
+  execFileSync(process.execPath, [cli, "view", "view-me"], { cwd: root, env });
+  assert.equal(readFileSync(opened, "utf8"), output);
+
+  const viewed = spawn(process.execPath, [cli, "view", "view-me", "--live"], { cwd: root, env });
   t.after(() => viewed.kill());
-  for (let attempts = 0; !existsSync(opened) && attempts < 100; attempts += 1) {
+  for (let attempts = 0; !readFileSync(opened, "utf8").startsWith("http://") && attempts < 100; attempts += 1) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 20));
   }
   assert.equal(existsSync(opened), true);

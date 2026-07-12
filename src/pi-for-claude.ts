@@ -646,11 +646,18 @@ function liveSessionHtml(output: string): string {
 
 async function view(project: string, values: string[]): Promise<void> {
   const id = values[0];
-  if (!id || values.length > 2 || (values.length === 2 && values[1] !== "--no-open")) fail(msg("view-usage"));
+  const flag = values[1];
+  if (!id || values.length > 2 || (flag !== undefined && flag !== "--no-open" && flag !== "--live")) fail(msg("view-usage"));
   const source = piSessionPath(sessionDirs(project).sessions, id);
   const output = `${source.slice(0, -".jsonl".length)}.html`;
   exportSession(source, output);
-  if (values[1] === "--no-open") return;
+  if (flag === "--no-open") return;
+  if (flag !== "--live") {
+    const opened = spawnSync("open", [output], { encoding: "utf8" });
+    if (opened.error) fail(msg("could-not-run", { command: "open", error: opened.error.message }));
+    if (opened.status !== 0) fail(opened.stderr.trim() || msg("command-failed", { command: "open" }));
+    return;
+  }
 
   let html = liveSessionHtml(output);
   const clients = new Set<ServerResponse>();

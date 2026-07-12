@@ -110,7 +110,7 @@
   "unknown-sandbox-policy-field": "Unknown sandbox policy field: $path",
   "unsupported-git-common-dir": "Unsupported git common directory: $dir",
   "unterminated-quote": "Prompt field '$field' has an unterminated quote",
-  "view-usage": "Usage: pi-for-claude view <session> [--no-open]",
+  "view-usage": "Usage: pi-for-claude view <session> [--live | --no-open]",
   "view-html-missing-body": "Exported session HTML has no closing body tag: $output",
   "view-server-address": "The session viewer did not receive a local server address",
   "view-watching": "Watching $source for changes; press Ctrl-C to stop.",
