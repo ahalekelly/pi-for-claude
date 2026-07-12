@@ -74,10 +74,14 @@ function piSessionFiles(sessions: string, id: string): string[] {
   return readdirSync(sessions).filter((file) => file.endsWith(`_${id}.jsonl`));
 }
 
-function sessionResult(sessions: string, id: string): string {
+function piSessionPath(sessions: string, id: string): string {
   const files = piSessionFiles(sessions, id);
   if (files.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(files.length) }));
-  const entries = readFileSync(join(sessions, files[0]!), "utf8").trim().split("\n").reverse();
+  return join(sessions, files[0]!);
+}
+
+function sessionResult(sessions: string, id: string): string {
+  const entries = readFileSync(piSessionPath(sessions, id), "utf8").trim().split("\n").reverse();
   for (const line of entries) {
     const entry = record(JSON.parse(line), "Pi session entry");
     if (entry.type !== "message") continue;
@@ -620,6 +624,22 @@ function listSessions(project: string): void {
   }
 }
 
+function view(project: string, values: string[]): void {
+  const id = values[0];
+  if (!id || values.length > 2 || (values.length === 2 && values[1] !== "--no-open")) fail(msg("view-usage"));
+  const source = piSessionPath(sessionDirs(project).sessions, id);
+  const output = `${source.slice(0, -".jsonl".length)}.html`;
+  const exported = spawnSync(piBin, ["--export", source, output], { encoding: "utf8" });
+  if (exported.error) fail(msg("could-not-run", { command: piBin, error: exported.error.message }));
+  if (exported.status !== 0) fail(exported.stderr.trim() || msg("command-failed", { command: `${piBin} --export` }));
+  process.stdout.write(exported.stdout);
+  if (values[1] === "--no-open") return;
+
+  const opened = spawnSync("open", [output], { encoding: "utf8" });
+  if (opened.error) fail(msg("could-not-run", { command: "open", error: opened.error.message }));
+  if (opened.status !== 0) fail(opened.stderr.trim() || msg("command-failed", { command: "open" }));
+}
+
 function merge(project: string, id: string): void {
   const { main, sessions } = sessionDirs(project);
   const session = readSession(sessions, id);
@@ -681,6 +701,7 @@ async function main(argv: string[]): Promise<void> {
   if (!name || name === "help") return help();
   const project = process.cwd();
   if (name === "sessions") return listSessions(project);
+  if (name === "view") return view(project, values);
   if (name === "result") {
     const id = values[0];
     if (!id) fail(msg("requires-session-id", { name }));

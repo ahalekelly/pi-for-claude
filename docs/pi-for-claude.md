@@ -64,6 +64,7 @@ Built-in commands do not call a model:
 
 - `sessions` — list session ids, originating commands, and directories.
 - `result <session>` — print the last completed assistant response.
+- `view <session> [--no-open]` — export the conversation beside its JSONL as HTML and open it in the default browser.
 - `steer <session> <message>` — deliver a message after the current tool calls and before the next model call.
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
 - `interrupt <session>` — abort the active turn; the session remains resumable.
@@ -75,7 +76,7 @@ Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments
 
 ## Sessions and control
 
-Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Outside git, `<main>` is the project root. Metadata and event logs share the session's creation prefix: `<timestamp>-<session>.pi-for-claude.json` and `<timestamp>-<session>.log`. Commands still address the session by its plain id. Starting `implement-in-worktree` or `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
+Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Outside git, `<main>` is the project root. Metadata and event logs share the session's creation prefix: `<timestamp>-<session>.pi-for-claude.json` and `<timestamp>-<session>.log`. Commands still address the session by its plain id. `view` requires exactly one matching JSONL, writes an HTML file with the same basename beside it, and accepts `--no-open` to export without launching the browser. Starting `implement-in-worktree` or `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 

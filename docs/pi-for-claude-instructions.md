@@ -46,6 +46,7 @@ Delegate tasks to GPT-5.6 in Pi with `pi-for-claude`.
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
 - `sessions` — list session ids, originating commands, and directories
 - `result <session>` — print the last completed assistant response
+- `view <session> [--no-open]` — export the conversation beside its JSONL as HTML and open it in the default browser
 - `steer <session> <message>` — deliver a message after the next tool call
 - `queue <session> <message>` — queue a message until the current agent task finishes
 - `interrupt <session>` — abort the active turn; the session remains resumable

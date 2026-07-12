@@ -258,6 +258,58 @@ process.stdin.on("data", chunk => {
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
 });
 
+test("view exports beside the session JSONL and opens it unless disabled", () => {
+  const root = realpathSync(scratchRepo("pi-for-claude-view-"));
+  const sessions = join(root, ".agents", "sessions");
+  const commands = join(root, "commands");
+  mkdirSync(sessions, { recursive: true });
+  mkdirSync(commands);
+  const source = join(sessions, "2026-01-01T00-00-00-000Z_view-me.jsonl");
+  const output = join(sessions, "2026-01-01T00-00-00-000Z_view-me.html");
+  const opened = join(root, "opened.txt");
+  writeFileSync(source, "session data\n");
+
+  const fakePi = join(commands, "pi.mjs");
+  writeFileSync(
+    fakePi,
+    `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from "node:fs";
+if (process.argv[2] !== "--export") process.exit(2);
+writeFileSync(process.argv[4], "exported: " + readFileSync(process.argv[3], "utf8"));
+console.log("Exported to: " + process.argv[4]);
+`,
+  );
+  chmodSync(fakePi, 0o755);
+  const fakeOpen = join(commands, "open");
+  writeFileSync(fakeOpen, `#!/bin/sh\nprintf '%s' "$1" > "$OPENED_PATH"\n`);
+  chmodSync(fakeOpen, 0o755);
+
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const env = { ...process.env, PI_BIN: fakePi, OPENED_PATH: opened, PATH: `${commands}:${process.env.PATH}` };
+  const exported = execFileSync(process.execPath, [cli, "view", "view-me", "--no-open"], { cwd: root, env, encoding: "utf8" });
+  assert.equal(exported, `Exported to: ${output}\n`);
+  assert.equal(readFileSync(output, "utf8"), "exported: session data\n");
+  assert.equal(existsSync(opened), false);
+
+  execFileSync(process.execPath, [cli, "view", "view-me"], { cwd: root, env });
+  assert.equal(readFileSync(opened, "utf8"), output);
+});
+
+test("view requires exactly one matching session JSONL", () => {
+  const root = realpathSync(scratchRepo("pi-for-claude-view-count-"));
+  const sessions = join(root, ".agents", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(join(sessions, "first_same.jsonl"), "first\n");
+  writeFileSync(join(sessions, "second_same.jsonl"), "second\n");
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "view", "same", "--no-open"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Expected one Pi JSONL for session 'same', found 2/);
+});
+
 test("rpcRun passes the sandboxed bash allowlist in every mode", () => {
   const root = scratchRepo("pi-for-claude-tools-");
   const piForClaudeHome = makePiForClaudeHome(root);
