@@ -396,7 +396,7 @@ test("watch warns once when a live run's log goes silent", async () => {
   });
   const deadline = Date.now() + 15000;
   const waitForWarnings = async (count: number) => {
-    while ((stdout.match(/likely hung/g)?.length ?? 0) < count) {
+    while ((stdout.match(/produced no events/g)?.length ?? 0) < count) {
       if (Date.now() > deadline) assert.fail(`timed out waiting for stall warning #${count}`);
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
@@ -404,7 +404,7 @@ test("watch warns once when a live run's log goes silent", async () => {
   try {
     await waitForWarnings(1);
     await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
-    assert.equal(stdout.match(/likely hung/g)?.length, 1, "no repeat within the same interval");
+    assert.equal(stdout.match(/produced no events/g)?.length, 1, "no repeat within the same interval");
     assert.match(stdout, /Last event: events/, "the warning quotes the log's last line");
 
     const stalerTime = new Date(Date.now() - 16 * 60 * 1000);
