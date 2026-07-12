@@ -26,7 +26,7 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt` as needed.
 
-5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
+5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it. Keep the review from dirtying the worktree (use `npm ci`, not `npm install`), and while any session is in flight, avoid committing to files it is editing — queue changes into the session or hold them until after the merge.
 
 6. Continue a closed session with `pi-run resume <session> "<follow-up prompt>"` — same conversation and worktree. Use this for fixes or additional work that benefits from the prior context.
 
