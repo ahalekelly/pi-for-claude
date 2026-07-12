@@ -222,9 +222,20 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stderr.setEncoding("utf8");
+  // Pi warns "No project session found ... creating a new session" whenever
+  // --session-id names a session that doesn't exist yet — which is every new
+  // run, since the runner always passes a deterministic id. The full stderr
+  // still goes to the log; only this known-benign line is kept off the console.
+  let stderrTail = "";
   child.stderr.on("data", (chunk: string) => {
     appendFileSync(log, chunk);
-    process.stderr.write(chunk);
+    stderrTail += chunk;
+    let newline;
+    while ((newline = stderrTail.indexOf("\n")) !== -1) {
+      const line = stderrTail.slice(0, newline + 1);
+      stderrTail = stderrTail.slice(newline + 1);
+      if (!line.includes("creating a new session with that id")) process.stderr.write(line);
+    }
   });
 
   let nextId = 1;
@@ -366,6 +377,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     });
     child.once("error", failRun);
     child.once("exit", (code) => {
+      if (stderrTail) process.stderr.write(stderrTail);
       if (state.kind === "settled") resolveRun(state.result);
       else failRun(new Error(msg("pi-exited-before-settled", { code: String(code ?? "signal") })));
     });
@@ -412,6 +424,10 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     session = readSession(dirs.sessions, id);
     promptArgs = flags.args.slice(1);
     if (!existsSync(session.worktree)) fail(msg("session-worktree-missing", { worktree: session.worktree }));
+    // Without its conversation JSONL, pi would silently start an amnesiac
+    // session under the same id instead of resuming.
+    const conversations = piSessionFiles(dirs.sessions, id);
+    if (conversations.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(conversations.length) }));
   } else if (command.lifecycle === "create") {
     const plan = flags.args[0];
     if (!plan) fail(msg("requires-plan-file", { name }));

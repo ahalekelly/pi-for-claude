@@ -320,6 +320,50 @@ test("a second unclean handback settles and reports the problem to the orchestra
   assert.match(run.stdout, /dirt\.txt/);
 });
 
+test("resume refuses a session whose conversation log is missing", () => {
+  const root = scratchRepo("pi-run-amnesia-");
+  const piRunHome = makePiRunHome(root);
+  writeFileSync(
+    join(piRunHome, "prompts", "resume.md"),
+    `---
+description: Continue a session
+argument-hint: "<session> <follow-up>"
+model: default
+thinking: high
+sandbox: worktree-write
+worktree: reuse
+session: continue
+consult: Ask when blocked
+---
+$@
+`,
+  );
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const record = {
+    kind: "worktree",
+    id: "lost",
+    command: "implement-in-worktree",
+    mainCheckout: root,
+    worktree: root,
+    branch: "pi/lost",
+    baseCommit: git(root, "rev-parse", "HEAD"),
+    mergeState: { kind: "unrebased" },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  writeFileSync(join(sessions, "lost.pi-run.json"), JSON.stringify(record));
+
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const resume = spawnSync(process.execPath, [cli, "resume", "lost", "keep going"], {
+    encoding: "utf8",
+    cwd: root,
+    env: { ...process.env, PI_RUN_HOME: piRunHome },
+    timeout: 15000,
+  });
+  assert.equal(resume.status, 1);
+  assert.match(resume.stderr, /Expected one Pi JSONL for session 'lost', found 0/);
+});
+
 test("discard removes a direct session's record without touching git", () => {
   const root = scratchRepo("pi-run-direct-");
   const sessions = join(root, ".agents/sessions");
