@@ -505,7 +505,7 @@ function help(): void {
     const command = parsePrompt(readFileSync(join(home, "prompts", file), "utf8"));
     process.stdout.write(`  ${basename(file, ".md")} ${command.argumentHint}\t${command.description}\n`);
   }
-  process.stdout.write("\nBuilt-ins: help, sessions, result, steer, followup, interrupt, merge, discard, watch\n");
+  process.stdout.write("\nBuilt-ins: help, sessions, result, steer, queue, interrupt, merge, discard, watch\n");
 }
 
 async function watch(project: string, id: string): Promise<void> {
@@ -555,12 +555,12 @@ async function main(argv: string[]): Promise<void> {
     if (!id) fail(`${name} requires a session id`);
     return name === "merge" ? merge(project, id) : discard(project, id);
   }
-  if (name === "steer" || name === "followup" || name === "interrupt") {
+  if (name === "steer" || name === "queue" || name === "interrupt") {
     const id = values[0];
     if (!id) fail(`${name} requires a session id`);
     const message = values.slice(1).join(" ");
     if (name !== "interrupt" && !message) fail(`${name} requires a message`);
-    await control(project, id, name === "followup" ? "follow_up" : name === "interrupt" ? "abort" : "steer", message);
+    await control(project, id, name === "queue" ? "follow_up" : name === "interrupt" ? "abort" : "steer", message);
     return;
   }
   await runPrompt(name, project, values);

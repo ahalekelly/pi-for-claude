@@ -67,7 +67,7 @@ Built-in commands do not call a model:
 - `sessions` — list session ids, originating commands, and worktrees.
 - `result <session>` — print the last completed assistant response.
 - `steer <session> <message>` — deliver a message after the current tool calls and before the next model call.
-- `followup <session> <message>` — queue work after the current agent run settles.
+- `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
 - `interrupt <session>` — abort the active turn; the session remains resumable.
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends.
 - `merge <session>` — rebase, fast-forward, and clean up.
