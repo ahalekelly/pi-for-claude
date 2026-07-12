@@ -87,7 +87,10 @@ When launching a run, start one Monitor running `pi-run watch <session>`. It liv
 
 `worktree-write` implementation runs allow writes only in the session worktree and temporary storage. `project-write` in-place runs allow writes in the project directory and temporary storage, but never grant git writes. `read-only` review runs allow temporary writes only. All modes:
 
-- wrap bash with the OS sandbox;
+- route every bash call to the sandbox extension’s OS-sandboxed implementation; pi registers the extension’s `bash` over its builtin tool, so the builtin bash never executes;
+- explicitly allowlist tools in every mode so no unlisted tool is available; `bash` remains listed because pi applies allowlists to extension tools too;
+- run hypa inside the bash sandbox, with write access only to `~/.hypa` for its SQLite store;
+- cap each bash command at 600 seconds; a missing or zero timeout uses that cap;
 - guard pi’s built-in read, write, edit, grep, find, and list tools;
 - scope git writes for `worktree-write` to the session: pi can stage, commit, and rebase its own branch and append to `info/exclude`, while hooks, config (including `config.worktree`), other branches, the `commondir`/`gitdir` worktree pointers, and the worktree's `.git` file stay write-blocked;
 - block all `.git` writes for `project-write`;

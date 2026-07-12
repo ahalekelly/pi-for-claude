@@ -219,7 +219,8 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     "--extension", join(home, "extensions", "sandbox", "index.ts"),
     "--extension", join(home, "extensions", "consult.ts"),
   ];
-  if (command.sandbox === "read-only") args.push("--tools", "read,bash,grep,find,ls");
+  const tools = command.sandbox === "read-only" ? "read,bash,grep,find,ls" : "read,bash,write,edit,grep,find,ls";
+  args.push("--tools", tools);
 
   // Sessions resumed while a rebase is in progress legitimately hand
   // back an unfinished rebase; everything else must settle cleanly mergeable.

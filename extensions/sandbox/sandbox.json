@@ -20,7 +20,7 @@
       "~/.gnupg",
       "~/.config/gcloud"
     ],
-    "allowWrite": [".", "/tmp/claude"],
+    "allowWrite": [".", "/tmp/claude", "~/.hypa"],
     "denyWrite": [
       ".git",
       "config.worktree",

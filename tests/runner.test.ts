@@ -91,6 +91,21 @@ $plan
 `,
   );
   writeFileSync(
+    join(piRunHome, "prompts", "review.md"),
+    `---
+description: Review a project
+argument-hint: "[focus]"
+model: default
+thinking: high
+sandbox: read-only
+worktree: none
+session: new
+consult: Ask when blocked
+---
+Review the project.
+`,
+  );
+  writeFileSync(
     join(piRunHome, "prompts", "resume.md"),
     `---
 description: Continue a session
@@ -123,7 +138,8 @@ process.stdin.on("data", chunk => {
   if (newline === -1) return;
   const command = JSON.parse(input.slice(0, newline));
   if (command.type !== "prompt") process.exit(2);
-  writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
+  if (process.env.CAPTURED_ARGS) writeFileSync(process.env.CAPTURED_ARGS, JSON.stringify(process.argv));
+  if (process.env.WRITTEN_FILE) writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
   const id = valueAfter("--session-id");
   const sessionDir = valueAfter("--session-dir");
   const message = {role:"assistant", content:[{type:"text", text:"Implemented in place."}]};
@@ -226,6 +242,29 @@ process.stdin.on("data", chunk => {
   assert.equal(git(root, "rev-list", "--count", "HEAD"), "4", "the session's commits fast-forward onto main verbatim");
   assert.equal(existsSync(worktree), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");
+});
+
+test("rpcRun passes the sandboxed bash allowlist in every mode", () => {
+  const root = scratchRepo("pi-run-tools-");
+  const piRunHome = makePiRunHome(root);
+  const fakePi = writeInPlacePi(root);
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  writeFileSync(join(root, "worktree.md"), "Do the thing.\n");
+  writeFileSync(join(root, "in-place.md"), "Do the thing.\n");
+
+  const toolsFor = (command: string, ...args: string[]) => {
+    const captured = join(root, `${command}.args.json`);
+    execFileSync(process.execPath, [cli, command, ...args], {
+      cwd: root,
+      env: { ...process.env, PI_BIN: fakePi, PI_RUN_HOME: piRunHome, CAPTURED_ARGS: captured },
+    });
+    const piArgs = JSON.parse(readFileSync(captured, "utf8")) as string[];
+    return piArgs[piArgs.indexOf("--tools") + 1];
+  };
+
+  assert.equal(toolsFor("implement-in-worktree", "worktree.md"), "read,bash,write,edit,grep,find,ls");
+  assert.equal(toolsFor("run", "in-place.md"), "read,bash,write,edit,grep,find,ls");
+  assert.equal(toolsFor("review"), "read,bash,grep,find,ls");
 });
 
 test("run edits a non-git project in place and discard preserves its files", () => {

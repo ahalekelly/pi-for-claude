@@ -92,26 +92,25 @@ function sandboxedBash(): BashOperations {
   return {
     async exec(command, cwd, { onData, signal, timeout }) {
       if (!existsSync(cwd)) throw new Error(msg("cwd-does-not-exist", { cwd }));
+      const timeoutSeconds = timeout && timeout > 0 ? Math.min(timeout, 600) : 600;
       const wrapped = await SandboxManager.wrapWithSandbox(command);
       return await new Promise((resolve, reject) => {
         const child = spawn("bash", ["-c", wrapped], { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
         let timedOut = false;
-        const timer = timeout
-          ? setTimeout(() => {
-              timedOut = true;
-              if (child.pid) process.kill(-child.pid, "SIGKILL");
-            }, timeout * 1000)
-          : undefined;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          if (child.pid) process.kill(-child.pid, "SIGKILL");
+        }, timeoutSeconds * 1000);
         const abort = () => child.pid && process.kill(-child.pid, "SIGKILL");
         signal?.addEventListener("abort", abort, { once: true });
         child.stdout.on("data", onData);
         child.stderr.on("data", onData);
         child.once("error", reject);
         child.once("close", (code) => {
-          if (timer) clearTimeout(timer);
+          clearTimeout(timer);
           signal?.removeEventListener("abort", abort);
           if (signal?.aborted) reject(new Error(msg("sandboxed-command-aborted")));
-          else if (timedOut) reject(new Error(msg("sandboxed-command-timeout", { seconds: String(timeout) })));
+          else if (timedOut) reject(new Error(msg("sandboxed-command-timeout", { seconds: String(timeoutSeconds) })));
           else resolve({ exitCode: code });
         });
       });
