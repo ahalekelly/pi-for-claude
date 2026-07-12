@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -586,6 +586,21 @@ function help(): void {
   process.stdout.write(msg("help-builtins"));
 }
 
+// The last line of a session log, reading only the file's tail — event logs
+// grow to tens of megabytes. Long RPC event lines are truncated.
+function logTail(path: string): string {
+  const size = statSync(path).size;
+  const length = Math.min(4096, size);
+  if (length === 0) return "";
+  const fd = openSync(path, "r");
+  const buffer = Buffer.alloc(length);
+  readSync(fd, buffer, 0, length, size - length);
+  closeSync(fd);
+  const lines = buffer.toString("utf8").trimEnd().split("\n");
+  const last = lines[lines.length - 1] ?? "";
+  return last.length > 500 ? `${last.slice(0, 500)}…` : last;
+}
+
 // Lives as long as the session, not a single run: one watch covers the initial
 // run and every resume, and exits when merge or discard removes the session.
 // Alongside consult questions it emits a stall warning when a live run's event
@@ -608,7 +623,7 @@ async function watch(project: string, id: string): Promise<void> {
       const silentMs = Date.now() - statSync(log).mtimeMs;
       const intervals = Math.floor(silentMs / stallMs);
       if (intervals > warnedIntervals) {
-        process.stdout.write(`${msg("session-stalled", { id, minutes: String(Math.round(silentMs / 60000)) })}\n`);
+        process.stdout.write(`${msg("session-stalled", { id, minutes: String(Math.round(silentMs / 60000)), last_event: logTail(log) })}\n`);
       }
       warnedIntervals = intervals;
     } else {
