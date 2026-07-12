@@ -22,7 +22,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    - `pi-run queue <session> "<message>"` — queued until the current agent task finishes
    - `pi-run interrupt <session>` — abort the active turn; the session stays resumable
 
-5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch, and the output of `git log --oneline --no-decorate "$main_branch..HEAD"` and `git diff --stat "$main_branch...HEAD"` will be appended to Pi's response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it. If the output ends with a WARNING that a rebase is in progress, pi escalated a merge conflict to you: resolve the listed files in the worktree (or resume the session with instructions), run `git rebase --continue`, and re-verify.
+5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch, and the output of `git log --oneline --no-decorate "$main_branch..HEAD"` and `git diff --stat "$main_branch...HEAD"` will be appended to Pi's response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
 6. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. You can use this to ask for fixes or additional features that build on top of the existing work. 
 
