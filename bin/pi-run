@@ -1,2 +1,3 @@
 #!/bin/sh
-exec node "$HOME/.agents/pi-run/src/pi-run.ts" "$@"
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec node "$root/src/pi-run.ts" "$@"

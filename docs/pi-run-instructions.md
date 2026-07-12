@@ -55,7 +55,7 @@ Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review/adversarial-review):
 
-- `--model <label-or-id>` — override the prompt's model; labels come from `~/.agents/pi-run/models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
+- `--model <label-or-id>` — override the prompt's model; labels come from the pi-run checkout's `models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
 - `--thinking <level>` — override the model label's default thinking level
 - `--base <ref>` — diff base for reviews
 - `--pre <file>` / `--post <file>` — prepend/append text files to the prompt; paths resolve from the current directory

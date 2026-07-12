@@ -4,10 +4,10 @@
 
 ## Setup
 
-Run `npm ci` in `~/.agents/pi-run`. Add the command directory to `PATH`:
+Run `npm ci` in the repository checkout. Add its command directory to `PATH`:
 
 ```sh
-export PATH="$PATH:$HOME/.agents/pi-run/bin"
+export PATH="$PATH:/path/to/pi-run/bin"
 ```
 
 `models.json` maps stable labels to provider/model ids. A label may be a string or an object with a default thinking level:
