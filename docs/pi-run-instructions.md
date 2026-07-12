@@ -1,22 +1,22 @@
 # pi-run
 
-Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
+Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 
-`implement-in-worktree` requires a git repository and creates a persistent worktree session under the main checkout's `.agents/`. `run` edits the project directory directly and also works without git. Commands must run inside the project directory. In a git repository, use `implement-in-worktree` unless the user explicitly asked for in-place work; `run` is for non-git directories and user-requested in-place edits.
+`implement-in-worktree` requires a git repository and creates a persistent worktree session under the main checkout's `.agents/`. `run` edits the project directory directly and also works without git. Commands must run inside the project directory. In a git repository, use `implement-in-worktree` when running multiple agents simultaneously, `run` is for non-git directories and single-subagent workflows.
 
 ## Worktree workflow
 
-1. Write the plan to `.agents/plans/<session>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/worktrees/<session>`, so pick a unique name — starting a session with an existing plan basename fails.
+1. Write the plan to `.agents/plans/<session>.md` in the git project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/worktrees/<session>`, so pick a unique name — starting a session with an existing plan basename fails.
 
    Plan length should be proportional to the task; 1/2th as many tokens as the expected diff is a rough prior.
 
-2. Launch the run directly in one persistent Monitor. Monitor runs outside the Bash sandbox, which gives pi provider access and lets pi-run create its local control socket:
+2. Launch the run in a persistent Monitor. Monitor runs outside the Bash sandbox, which gives pi provider access and lets pi-run create its local control socket:
 
    ```js
-   Monitor({ command: "pi-run implement-in-worktree .agents/plans/<session>.md", description: "pi session <session>", persistent: true, timeout_ms: 300000 })
+   Monitor({ command: "pi-run implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
-3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in your visible reply because the user cannot see Monitor event bodies.
+3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in a user reply because the user cannot see Monitor event bodies.
 
 4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt` as needed.
 
@@ -32,11 +32,11 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 1. Write the plan to `.agents/plans/<session>.md` in the project directory. In a non-git project, this directory is the project root and every pi-run command for the session must run there.
 
-2. Launch `pi-run run .agents/plans/<session>.md` directly in one persistent Monitor. Steer, queue, or interrupt the session as usual.
+2. As above, launch `pi-run run .agents/plans/<session>.md` in a Monitor, and steer, queue, or interrupt the session as usual.
 
-3. Review the changes with `git status` and `git diff` where git is available. Use `pi-run resume <session> "<follow-up prompt>"` for fixes.
+3. When Pi finishes, the changes will be shown with `git status` and `git diff` if a git repo is available. Use `pi-run resume <session> "<follow-up prompt>"` for related changes.
 
-4. Run `pi-run discard <session>` to close the session. It removes only session metadata and leaves every project file in place; there is no merge step.
+4. Run `pi-run discard <session>` to close the session. It removes only session metadata and leaves every project file in place; without a worktree there is no `merge` command.
 
 ## Command reference
 
@@ -58,4 +58,4 @@ Trailing flags on prompt commands (implement-in-worktree/run/resume/review/adver
 - `--model <label-or-id>` — override the prompt's model; labels come from `~/.agents/pi-run/models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
 - `--thinking <level>` — override the model label's default thinking level
 - `--base <ref>` — diff base for reviews
-- `--pre <file>` / `--post <file>` — repeatable attachments prepended/appended to the prompt; paths resolve from the current directory
+- `--pre <file>` / `--post <file>` — prepend/append text files to the prompt; paths resolve from the current directory
