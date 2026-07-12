@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -588,13 +588,30 @@ function help(): void {
 
 // Lives as long as the session, not a single run: one watch covers the initial
 // run and every resume, and exits when merge or discard removes the session.
+// Alongside consult questions it emits a stall warning when a live run's event
+// log goes silent — the signature of a hung tool call. Silence during a pending
+// consult is expected (pi blocks on the answer file) and never counts.
 async function watch(project: string, id: string): Promise<void> {
   const { sessions } = sessionDirs(project);
   readSession(sessions, id);
   const record = sessionPath(sessions, id);
   const question = join(sessions, `${id}.question.md`);
+  const control = join(sessions, `${id}.ctl`);
+  const log = join(sessions, `${id}.log`);
+  const stallMs = 5 * 60 * 1000;
+  let stalled = false;
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   while (existsSync(record)) {
+    if (!existsSync(question) && existsSync(control) && existsSync(log)) {
+      const silentMs = Date.now() - statSync(log).mtimeMs;
+      if (silentMs > stallMs && !stalled) {
+        stalled = true;
+        process.stdout.write(`${msg("session-stalled", { id, minutes: String(Math.round(silentMs / 60000)) })}\n`);
+      }
+      if (silentMs <= stallMs) stalled = false;
+    } else {
+      stalled = false;
+    }
     if (existsSync(question)) {
       let text: string;
       try {

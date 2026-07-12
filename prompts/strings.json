@@ -88,6 +88,7 @@
   "session-no-mergeable-branch": "Session '$id' has no mergeable branch",
   "session-not-currently-running": "Session '$id' is not currently running",
   "session-rebase-in-progress": "Session '$id' has a rebase in progress; resolve the conflicts and run 'git rebase --continue' first",
+  "session-stalled": "WARNING: session '$id' has produced no events for $minutes minutes — a tool call is likely hung. Inspect pi's child processes (ps -axo pid,ppid,stat,etime,command | grep -i hypa) and kill the stuck chain to unstick the run.",
   "session-uncommitted-changes": "Session '$id' has uncommitted changes; resume the session to commit them, or commit or clean up in $worktree",
   "session-worktree-missing": "Session worktree is missing: $worktree",
   "success-must-be-boolean": "$context success must be boolean",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -365,6 +365,50 @@ $@
   });
   assert.equal(resume.status, 1);
   assert.match(resume.stderr, /Expected one Pi JSONL for session 'lost', found 0/);
+});
+
+test("watch warns once when a live run's log goes silent", async () => {
+  const root = scratchRepo("pi-run-stall-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const record = {
+    kind: "direct",
+    id: "s1",
+    command: "review",
+    mainCheckout: root,
+    worktree: root,
+    baseCommit: git(root, "rev-parse", "HEAD"),
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const recordPath = join(sessions, "s1.pi-run.json");
+  writeFileSync(recordPath, JSON.stringify(record));
+  writeFileSync(join(sessions, "s1.ctl"), "");
+  writeFileSync(join(sessions, "s1.log"), "events\n");
+  const staleTime = new Date(Date.now() - 10 * 60 * 1000);
+  utimesSync(join(sessions, "s1.log"), staleTime, staleTime);
+
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const child = spawn(process.execPath, [cli, "watch", "s1"], { cwd: root });
+  let stdout = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  const deadline = Date.now() + 15000;
+  try {
+    while (!stdout.includes("likely hung")) {
+      if (Date.now() > deadline) assert.fail("timed out waiting for stall warning");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
+    assert.equal(stdout.match(/likely hung/g)?.length, 1, "stall warning fires once per episode");
+    rmSync(recordPath);
+    const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
+    assert.equal(exitCode, 0);
+  } finally {
+    if (existsSync(recordPath)) rmSync(recordPath);
+    if (child.exitCode === null) child.kill("SIGKILL");
+  }
 });
 
 test("discard removes a direct session's record without touching git", () => {
