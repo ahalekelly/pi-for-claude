@@ -161,13 +161,19 @@ function parseFlags(values: string[]): Flags {
   return flags;
 }
 
+function commandFiles(): string[] {
+  const prompts = join(home, "prompts");
+  return readdirSync(prompts).filter((file) => file.endsWith(".md") && readFileSync(join(prompts, file), "utf8").startsWith("---\n"));
+}
+
 function commandFile(name: string): string {
-  const path = join(home, "prompts", `${name}.md`);
-  if (!existsSync(path)) {
-    const names = readdirSync(join(home, "prompts")).filter((file) => file.endsWith(".md")).map((file) => basename(file, ".md"));
+  const file = `${name}.md`;
+  const files = commandFiles();
+  if (!files.includes(file)) {
+    const names = files.map((candidate) => basename(candidate, ".md"));
     fail(msg("unknown-command", { name, names: names.join(", ") }));
   }
-  return path;
+  return join(home, "prompts", file);
 }
 
 function shell(command: string, cwd: string): string {
@@ -689,7 +695,7 @@ function discard(project: string, id: string): void {
 
 function help(): void {
   process.stdout.write(msg("help-usage"));
-  for (const file of readdirSync(join(home, "prompts")).filter((name) => name.endsWith(".md")).sort()) {
+  for (const file of commandFiles().sort()) {
     const command = parsePrompt(readFileSync(join(home, "prompts", file), "utf8"));
     process.stdout.write(`  ${basename(file, ".md")} ${command.argumentHint}\t${command.description}\n`);
   }

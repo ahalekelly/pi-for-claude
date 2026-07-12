@@ -137,6 +137,20 @@ $@
   return piForClaudeHome;
 }
 
+test("help ignores Markdown documentation in the prompts directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-help-"));
+  const piForClaudeHome = makePiForClaudeHome(root);
+  writeFileSync(join(piForClaudeHome, "prompts", "pi-for-claude-instructions.md"), "# Instructions\n");
+
+  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "help"], {
+    cwd: root,
+    env: { ...process.env, PI_FOR_CLAUDE_HOME: piForClaudeHome },
+    encoding: "utf8",
+  });
+  assert.doesNotMatch(output, /pi-for-claude-instructions/);
+  assert.match(output, /implement-in-worktree <plan-file>/);
+});
+
 function writeInPlacePi(root: string): string {
   const fakePi = join(root, "in-place-pi.mjs");
   writeFileSync(
