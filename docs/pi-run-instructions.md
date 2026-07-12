@@ -26,13 +26,11 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt` as needed.
 
-5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and deviations from your intent.
+5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch; its commits and a diffstat against main are appended to the response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
 6. Continue a closed session with `pi-run resume <session> "<follow-up prompt>"` — same conversation and worktree. Use this for fixes or additional work that benefits from the prior context.
 
-7. To accept the work, run `pi-run merge <session>` — it rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
-
-   If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
+7. To accept the work, run `pi-run merge <session>` — it rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch.
 
 8. Discard unwanted work with `pi-run discard <session>` (never just delete the worktree directory). Once a worktree is deleted with `merge` or `discard`, the session cannot be resumed, but its logs remain available under `.agents/sessions/`.
 
@@ -50,7 +48,7 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 - `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session; plan path may be relative to the current directory
 - `run <plan-file>` — implement a plan directly in the project directory
-- `resume <session> <follow-up>` — continue the same pi conversation in its worktree or project directory; fails while a run is still active
+- `resume <session> <follow-up>` — continue the same pi conversation in its worktree or project directory
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it
 - `sessions` — list session ids, originating commands, and directories
@@ -61,7 +59,6 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, lives across resumes, exits when the session is merged or discarded
 - `merge <session>` — rebase, fast-forward the session's commits onto main, and clean up the worktree and branch
 - `discard <session>` — force-remove the worktree and branch, or close a review or in-place session by removing only its metadata record
-- `help` — render prompt names, argument hints, and descriptions
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review/adversarial-review):
 
