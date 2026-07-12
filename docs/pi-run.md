@@ -37,10 +37,9 @@ After the run:
 
 1. Inspect the final response and worktree diff.
 2. Run the project’s verification in the worktree.
-3. Commit the reviewed changes on the session branch.
-4. Run `pi-run merge fix-auth`.
+3. Run `pi-run merge fix-auth "Fix the auth flow"`.
 
-`merge` rebases the private session branch onto the main checkout’s current branch, fast-forwards main, then removes the worktree and branch. Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
+`merge` commits any uncommitted worktree changes, rebases the private session branch onto the main checkout’s current branch, squashes the whole session into a single commit with the given message, fast-forwards main, then removes the worktree and branch. Each merged session lands as exactly one commit on main, however many intermediate commits the session accumulated. Rebase is appropriate because session branches are private and unpushed; never rebase a shared branch.
 
 If main moved, `merge` rebases and stops so verification can be rerun against the new base. Run `merge` again after verification. If rebase conflicts, the command reports the conflicted files and worktree and leaves the rebase in progress. Resolve them there, or use:
 
@@ -70,7 +69,7 @@ Built-in commands do not call a model:
 - `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles.
 - `interrupt <session>` — abort the active turn; the session remains resumable.
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, exits when the run ends.
-- `merge <session>` — rebase, fast-forward, and clean up.
+- `merge <session> <message>` — squash the session into one commit on main and clean up.
 - `discard <session>` — force-remove the worktree and branch, or just the record for review sessions.
 - `help` — render prompt names, argument hints, and descriptions.
 

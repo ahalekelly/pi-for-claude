@@ -458,11 +458,17 @@ function listSessions(project: string): void {
   }
 }
 
-function merge(project: string, id: string): void {
+function merge(project: string, id: string, message: string): void {
   const { main, sessions } = sessionDirs(project);
   const session = readSession(sessions, id);
   if (session.kind !== "worktree") fail(`Session '${id}' has no mergeable branch`);
-  if (git(session.worktree, ["status", "--porcelain"])) fail(`Session '${id}' has uncommitted changes; review and commit them first`);
+  if (existsSync(git(session.worktree, ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"]))) {
+    fail(`Session '${id}' has a rebase in progress; resolve the conflicts and run 'git rebase --continue' first`);
+  }
+  if (git(session.worktree, ["status", "--porcelain"])) {
+    git(session.worktree, ["add", "-A"]);
+    git(session.worktree, ["commit", "-m", message]);
+  }
   const mainBranch = git(main, ["branch", "--show-current"]);
   if (!mainBranch) fail("The main checkout must be on a branch");
   const mainHead = git(main, ["rev-parse", "HEAD"]);
@@ -481,6 +487,9 @@ function merge(project: string, id: string): void {
   }
   const rebasedOnto = session.mergeState.kind === "rebased" ? session.mergeState.onto : mainHead;
   if (git(main, ["rev-parse", "HEAD"]) !== rebasedOnto) fail("Main moved after rebase; run merge again to rebase onto its new HEAD");
+  if (git(session.worktree, ["rev-parse", "HEAD"]) === rebasedOnto) fail(`Session '${id}' has no changes to merge`);
+  git(session.worktree, ["reset", "--soft", rebasedOnto]);
+  git(session.worktree, ["commit", "-m", message]);
   git(main, ["merge", "--ff-only", session.branch]);
   git(main, ["worktree", "remove", session.worktree]);
   git(main, ["branch", "-d", session.branch]);
@@ -550,10 +559,17 @@ async function main(argv: string[]): Promise<void> {
     process.stdout.write(`${sessionResult(sessions, id)}\n`);
     return;
   }
-  if (name === "merge" || name === "discard") {
+  if (name === "merge") {
     const id = values[0];
-    if (!id) fail(`${name} requires a session id`);
-    return name === "merge" ? merge(project, id) : discard(project, id);
+    if (!id) fail("merge requires a session id");
+    const message = values.slice(1).join(" ");
+    if (!message) fail("merge requires a commit message");
+    return merge(project, id, message);
+  }
+  if (name === "discard") {
+    const id = values[0];
+    if (!id) fail("discard requires a session id");
+    return discard(project, id);
   }
   if (name === "steer" || name === "queue" || name === "interrupt") {
     const id = values[0];
