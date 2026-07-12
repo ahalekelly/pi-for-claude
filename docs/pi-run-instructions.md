@@ -20,7 +20,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    - `pi-run queue <session> "<message>"` — queued until the current agent task finishes
    - `pi-run interrupt <session>` — abort the active turn; the session stays resumable
 
-5. When it completes, read the final response and the worktree diff. Pi leaves changes uncommitted and cannot touch git metadata. Examine the diff for issues, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
+5. When it completes, read the final response and the worktree diff (pi may have committed or rebased on its private branch; `merge` squashes everything either way). Examine the diff for issues, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
 6. To make changes, use `pi-run resume <session> "<message>"` to ask for further edits, or for minor edits you can edit the worktree files yourself (`queue` only works while a run is still active)
 

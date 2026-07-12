@@ -23,7 +23,9 @@
     "allowWrite": [".", "/tmp/claude"],
     "denyWrite": [
       ".git",
-      "**/.git/**",
+      "config.worktree",
+      "commondir",
+      "gitdir",
       "~/.npm/_logs/**",
       "~/.claude/debug/**",
       ".env",

@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   createBashTool,
@@ -12,7 +12,7 @@ import { SandboxManager, type SandboxRuntimeConfig } from "@sysid/sandbox-runtim
 
 import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.ts";
 
-type Policy = SandboxRuntimeConfig & { filesystem: FilesystemPolicy };
+type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
 
 function stringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry)) {
@@ -45,6 +45,40 @@ function loadPolicy(readOnly: boolean): Policy {
       allowWrite: readOnly ? ["/tmp/claude"] : stringArray(filesystem.allowWrite, "filesystem.allowWrite"),
       denyWrite: stringArray(filesystem.denyWrite, "filesystem.denyWrite"),
     },
+  };
+}
+
+// Git state pi may write, all scoped to its own session: the linked worktree's
+// git dir (index, HEAD, rebase state), the shared object store, the session
+// branch ref and reflog, and info/exclude. Hooks, config, and other branches
+// are never included, and the worktree-pointer files inside the git dir are
+// explicitly denied because tampering with them would redirect git commands the
+// orchestrator later runs outside the sandbox. A main checkout (git dir ==
+// common dir) gets nothing.
+function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
+  const out = (args: string[]): string => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(" ")} failed`);
+    return result.stdout.trim();
+  };
+  const gitDir = out(["rev-parse", "--path-format=absolute", "--git-dir"]);
+  const commonDir = out(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (gitDir === commonDir) return { allow: [], deny: [] };
+  // The session branch is pi/<worktree name> by construction. Derived from the
+  // path, not `git branch --show-current`, because a session resumed mid-rebase
+  // has a detached HEAD.
+  const branch = `pi/${basename(cwd)}`;
+  return {
+    allow: [
+      gitDir,
+      join(commonDir, "objects"),
+      join(commonDir, "refs", "heads", branch),
+      join(commonDir, "refs", "heads", `${branch}.lock`),
+      join(commonDir, "logs", "refs", "heads", branch),
+      join(commonDir, "logs", "refs", "heads", `${branch}.lock`),
+      join(commonDir, "info", "exclude"),
+    ],
+    deny: ["config.worktree", "commondir", "gitdir"].map((name) => join(gitDir, name)),
   };
 }
 
@@ -86,6 +120,10 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   if (mode !== "worktree-write" && mode !== "read-only") throw new Error("PI_RUN_SANDBOX_MODE must be worktree-write or read-only");
   const readOnly = mode === "read-only";
   const policy = loadPolicy(readOnly);
+  const gitPaths = readOnly ? { allow: [], deny: [] } : gitPolicyPaths(cwd);
+  policy.filesystem.allowWrite.push(...gitPaths.allow);
+  policy.filesystem.denyWrite.push(...gitPaths.deny);
+  const guardPolicy: FilesystemPolicy = { ...policy.filesystem, gitWrite: gitPaths.allow };
   let state: "starting" | "ready" | "failed" = "starting";
 
   pi.registerTool({
@@ -106,12 +144,12 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   pi.on("tool_call", (event, ctx) => {
     for (const tool of ["read", "grep", "find", "ls"] as const) {
       if (!isToolCallEventType(tool, event) || !event.input.path) continue;
-      const reason = readBlocked(String(event.input.path), policy.filesystem, ctx.cwd);
+      const reason = readBlocked(String(event.input.path), guardPolicy, ctx.cwd);
       return reason ? { block: true, reason } : undefined;
     }
     for (const tool of ["write", "edit"] as const) {
       if (!isToolCallEventType(tool, event) || !event.input.path) continue;
-      const reason = writeBlocked(String(event.input.path), policy.filesystem, ctx.cwd, readOnly);
+      const reason = writeBlocked(String(event.input.path), guardPolicy, ctx.cwd, readOnly);
       return reason ? { block: true, reason } : undefined;
     }
   });

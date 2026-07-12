@@ -6,6 +6,7 @@ export type FilesystemPolicy = {
   denyRead: string[];
   allowWrite: string[];
   denyWrite: string[];
+  gitWrite: string[];
 };
 
 function absolute(path: string, cwd: string): string {
@@ -40,9 +41,10 @@ export function readBlocked(path: string, policy: FilesystemPolicy, cwd: string)
 export function writeBlocked(path: string, policy: FilesystemPolicy, cwd: string, readOnly: boolean): string {
   if (readOnly) return `Write denied: '${path}' because this command is read-only`;
   const target = absolute(path, cwd);
-  if (target.split(sep).includes(".git")) return `Write denied: '${path}' targets restricted .git metadata`;
   const denied = policy.denyWrite.find((pattern) => matchesName(target, pattern));
   if (denied) return `Write denied: '${path}' matches restricted pattern '${denied}'`;
-  const allowed = policy.allowWrite.some((entry) => under(target, absolute(entry, cwd)));
+  const gitAllowed = policy.gitWrite.some((entry) => under(target, absolute(entry, cwd)));
+  if (target.split(sep).includes(".git") && !gitAllowed) return `Write denied: '${path}' targets restricted .git metadata`;
+  const allowed = gitAllowed || policy.allowWrite.some((entry) => under(target, absolute(entry, cwd)));
   return allowed ? "" : `Write denied: '${path}' is outside allowed paths`;
 }

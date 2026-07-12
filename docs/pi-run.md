@@ -31,7 +31,7 @@ Write a uniquely named plan, then start a session:
 pi-run run path/to/fix-auth.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi leaves changes uncommitted and cannot write git metadata.
+The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi may stage, commit, and rebase on its private branch; `merge` squashes whatever the session produced, committed or not.
 
 After the run:
 
@@ -89,7 +89,7 @@ Implementation runs allow writes only in the session worktree and temporary stor
 
 - wrap bash with the OS sandbox;
 - guard pi’s built-in read, write, edit, grep, find, and list tools;
-- block all `.git` writes, so pi cannot stage, commit, stash, or change repository configuration;
+- scope git writes to the session: pi can stage, commit, and rebase its own branch and append to `info/exclude`, while hooks, config (including `config.worktree`), other branches, the `commondir`/`gitdir` worktree pointers, and the worktree's `.git` file stay write-blocked;
 - block reads of configured secret and credential paths;
 - limit network access from bash to the domains in `extensions/sandbox/sandbox.json`;
 - fail closed: if OS sandbox initialization fails, bash remains blocked.
