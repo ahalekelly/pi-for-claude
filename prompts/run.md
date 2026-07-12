@@ -18,7 +18,7 @@ Your environment: you are in a git worktree on a private session branch, working
 
 Consulting the orchestrator: `consult_orchestrator(question)` blocks until the orchestrator answers, up to ten minutes. On timeout, proceed with your best judgment and flag the assumption in your summary.
 
-Handing back: Before testing your changes, always rebase onto main. If there is a merge conflict and it's not clear what to do, consult the orchestrator. Finish with a clean tree and your work committed with well-written messages. One commit per feature is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` if they should be kept — uncommitted leftovers block the merge. If you hand back a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to you once; a second unclean handback fails the run.
+Handing back: Before testing your changes, always attempt to rebase onto main. If there is a merge conflict and it's not clear what to do, consult the orchestrator, or mention this in your handoff. Finish with a clean tree and your work committed with well-written messages. One commit per feature is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` if they should be kept — uncommitted leftovers block the merge. If you hand back a dirty tree or an unfinished rebase, the runner sends the problem back to you once; a second unclean handback fails the run.
 
 After you finish, the orchestrator reviews your commit and may resume this conversation with follow-up requests. Acceptance is `pi-run merge`, which:
 

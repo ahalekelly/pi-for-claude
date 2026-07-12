@@ -171,18 +171,14 @@ function messageTemplate(name: string, injections: Record<string, string>): stri
   return renderTemplate(readFileSync(join(home, "prompts", "messages", `${name}.md`), "utf8").trim(), [], injections);
 }
 
-// What prevents this worktree from being handed back and merged cleanly, phrased
-// as a correction for pi. Empty string when the handback is acceptable.
-function handbackBlocker(worktree: string, main: string): string {
+// What prevents this worktree from being handed back, phrased as a correction
+// for pi. Empty string when the handback is acceptable. Conflicts against main
+// are not checked here — the orchestrator owns conflict resolution at merge time.
+function handbackBlocker(worktree: string): string {
   if (rebaseInProgress(worktree)) return messageTemplate("handback-rebase", {});
   const status = git(worktree, ["status", "--porcelain"]);
   if (status) return messageTemplate("handback-dirty", { status });
-  const mainBranch = git(main, ["branch", "--show-current"]);
-  if (!mainBranch) return "";
-  const merge = spawnSync("git", ["merge-tree", "--write-tree", mainBranch, "HEAD"], { cwd: worktree, encoding: "utf8" });
-  if (merge.status === 0) return "";
-  if (merge.status !== 1) fail(merge.stderr.trim() || "git merge-tree failed");
-  return messageTemplate("handback-conflicts", { main_branch: mainBranch });
+  return "";
 }
 
 async function rpcRun(session: Session, sessions: string, command: PromptCommand, prompt: string, model: string, thinking: string): Promise<string> {
@@ -344,7 +340,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
           }
           if (event.type === "agent_settled") {
             if (state.kind === "has-result" && !abortRequested && checkHandback) {
-              const blocker = handbackBlocker(session.worktree, session.mainCheckout);
+              const blocker = handbackBlocker(session.worktree);
               if (blocker && corrections === 1) {
                 failRun(new Error(`Session '${session.id}' cannot hand back cleanly after a reminder; resume it or clean up ${session.worktree}. Its last response is available via 'pi-run result'.`));
                 return;
