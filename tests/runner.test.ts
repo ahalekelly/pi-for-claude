@@ -432,12 +432,15 @@ test("watch prints each question once and exits when the session ends", async ()
     await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
     assert.equal(stdout.match(/Which auth flow\?/g)?.length, 1);
 
-    rmSync(recordPath);
+    writeFileSync(question, "Second question, never answered");
+    await waitUntil(() => stdout.includes("Second question"));
+    rmSync(recordPath); // discard with the question still pending must end watch
     const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
     assert.equal(exitCode, 0);
     assert.match(stdout, /has ended/);
   } finally {
     if (existsSync(recordPath)) rmSync(recordPath);
+    if (existsSync(question)) rmSync(question);
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 });

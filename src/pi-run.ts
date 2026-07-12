@@ -603,7 +603,7 @@ async function watch(project: string, id: string): Promise<void> {
         continue; // answered between the existence check and the read
       }
       process.stdout.write(`${msg("question-from-session", { id, text: text.trim(), path: join(sessions, `${id}.answer.md`) })}\n`);
-      while (existsSync(question)) await sleep(500);
+      while (existsSync(question) && existsSync(record)) await sleep(500);
     }
     await sleep(500);
   }
