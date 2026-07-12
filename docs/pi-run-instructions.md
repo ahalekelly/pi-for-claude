@@ -1,18 +1,20 @@
 # pi-run
 
-Delegate implementation tasks to GPT-5.6 with `pi-run`. Each implementation runs in its own persistent git worktree and session; state lives under the main checkout's `.agents/scratchpad/`. Commands must be run from inside the project directory. The project directory must be a git repository, feel free to run `git init` if the directory is specific to the project.
+Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
-1. Write the plan to `.agents/scratchpad/plans/<name>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<name>`, and the worktree `<main>/.agents/scratchpad/worktrees/<name>`, so pick a unique name — starting a `run` with an existing plan basename fails.
+Each implementation runs in its own persistent git worktree and session; state lives under the main checkout's `.agents/scratchpad/`. Commands must be run from inside the project directory. The project directory must be a git repository, feel free to run `git init` if the directory is specific to the project.
+
+1. Write the plan to `.agents/scratchpad/plans/<session>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/scratchpad/worktrees/<session>`, so pick a unique name — starting a `run` with an existing plan basename fails.
 
 Plan length should be proportional to the task; 1/2th as many tokens as the expected diff is a rough prior.
 
 2. Launch in a `run_in_background` Bash (sandbox off, pi needs provider network access):
 
    ```sh
-   pi-run run .agents/scratchpad/plans/<name>.md
+   pi-run run .agents/scratchpad/plans/<session>.md
    ```
 
-3. Immediately start a persistent Monitor running `pi-run watch <name>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for `<session>.answer.md`. Read the question, decide, and write the answer file to unblock the turn; on timeout pi proceeds with its best judgment and reports the assumption.
+3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for `<session>.answer.md`. Read the question, decide, and write the answer file to unblock the turn; on timeout pi proceeds with its best judgment and reports the assumption.
    
 4. While the subagent is running you can also redirect it:
 
