@@ -395,13 +395,21 @@ test("watch warns once when a live run's log goes silent", async () => {
     stdout += chunk;
   });
   const deadline = Date.now() + 15000;
-  try {
-    while (!stdout.includes("likely hung")) {
-      if (Date.now() > deadline) assert.fail("timed out waiting for stall warning");
+  const waitForWarnings = async (count: number) => {
+    while ((stdout.match(/likely hung/g)?.length ?? 0) < count) {
+      if (Date.now() > deadline) assert.fail(`timed out waiting for stall warning #${count}`);
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
+  };
+  try {
+    await waitForWarnings(1);
     await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
-    assert.equal(stdout.match(/likely hung/g)?.length, 1, "stall warning fires once per episode");
+    assert.equal(stdout.match(/likely hung/g)?.length, 1, "no repeat within the same interval");
+
+    const stalerTime = new Date(Date.now() - 16 * 60 * 1000);
+    utimesSync(join(sessions, "s1.log"), stalerTime, stalerTime);
+    await waitForWarnings(2);
+
     rmSync(recordPath);
     const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
     assert.equal(exitCode, 0);

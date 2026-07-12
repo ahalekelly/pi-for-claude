@@ -599,18 +599,20 @@ async function watch(project: string, id: string): Promise<void> {
   const control = join(sessions, `${id}.ctl`);
   const log = join(sessions, `${id}.log`);
   const stallMs = 5 * 60 * 1000;
-  let stalled = false;
+  // Warns at every full stall interval of silence (5, 10, 15... minutes), so an
+  // unattended hang keeps resurfacing instead of trusting one missed warning.
+  let warnedIntervals = 0;
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   while (existsSync(record)) {
     if (!existsSync(question) && existsSync(control) && existsSync(log)) {
       const silentMs = Date.now() - statSync(log).mtimeMs;
-      if (silentMs > stallMs && !stalled) {
-        stalled = true;
+      const intervals = Math.floor(silentMs / stallMs);
+      if (intervals > warnedIntervals) {
         process.stdout.write(`${msg("session-stalled", { id, minutes: String(Math.round(silentMs / 60000)) })}\n`);
       }
-      if (silentMs <= stallMs) stalled = false;
+      warnedIntervals = intervals;
     } else {
-      stalled = false;
+      warnedIntervals = 0;
     }
     if (existsSync(question)) {
       let text: string;
