@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createServer as createNetServer } from "node:net";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -194,6 +195,36 @@ process.stdin.on("data", chunk => {
   assert.equal(provider.signal, null, "pi-run must exit on its own instead of hanging");
   assert.equal(provider.status, 1);
   assert.match(provider.stderr, /The usage limit has been reached/);
+});
+
+test("a live control socket blocks a new run; a stale one is cleaned up", async () => {
+  const root = scratchRepo("pi-run-guard-");
+  const piRunHome = makePiRunHome(root);
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const sessions = join(root, ".agents/scratchpad/pi/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const crashPi = join(root, "crash-pi.mjs");
+  writeFileSync(crashPi, `#!/usr/bin/env node\nprocess.exit(2);\n`);
+  chmodSync(crashPi, 0o755);
+  const run = (plan: string) =>
+    spawnSync(process.execPath, [cli, "run", plan], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, PI_BIN: crashPi }, timeout: 15000 });
+
+  writeFileSync(join(root, "live.md"), "Do the thing.\n");
+  const server = createNetServer();
+  await new Promise<void>((resolveListen) => server.listen(join(sessions, "live.ctl"), resolveListen));
+  try {
+    const blocked = run("live.md");
+    assert.equal(blocked.status, 1);
+    assert.match(blocked.stderr, /Session 'live' is currently running/);
+  } finally {
+    server.close();
+  }
+
+  writeFileSync(join(root, "stale.md"), "Do the thing.\n");
+  writeFileSync(join(sessions, "stale.ctl"), "");
+  const proceeded = run("stale.md");
+  assert.equal(proceeded.status, 1);
+  assert.match(proceeded.stderr, /pi exited before agent_settled \(2\)/, "the stale socket must be removed so the run reaches pi");
 });
 
 test("discard removes a direct session's record without touching git", () => {

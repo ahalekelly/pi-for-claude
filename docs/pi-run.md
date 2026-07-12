@@ -78,7 +78,7 @@ Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments
 
 ## Sessions and control
 
-Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/scratchpad/pi/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Starting a `run` with an existing plan basename fails; use `resume` or rename the plan.
+Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/scratchpad/pi/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Starting a `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 

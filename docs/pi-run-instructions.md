@@ -16,13 +16,13 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    
 4. While the subagent is running you can also redirect it:
 
-   - `pi-run steer <session> "<message>"` — delivered after the current tool calls, before the next model call
-   - `pi-run followup <session> "<message>"` — queued until the current agent run finishes
+   - `pi-run steer <session> "<message>"` — delivered after the next tool call
+   - `pi-run followup <session> "<message>"` — queued until the current agent task finishes
    - `pi-run interrupt <session>` — abort the active turn; the session stays resumable
 
 5. When it completes, read the final response and the worktree diff. Pi leaves changes uncommitted and cannot touch git metadata. Examine the diff for issues, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
-6. To make changes, use `pi-run followup` to ask for further edits, or for minor edits you can edit the worktree files yourself
+6. To make changes, use `pi-run resume <session> "<message>"` to ask for further edits, or for minor edits you can edit the worktree files yourself (`followup` only works while a run is still active)
 
 7. To accept the edits, run `pi-run merge <session>` — rebases the private session branch onto the main checkout's current branch, fast-forwards main, and removes the worktree and branch.
 
@@ -33,7 +33,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 Full pi-run command reference:
 
 - `run <plan-file>` — implement a plan in a new worktree and session; plan path may be relative to the current directory
-- `resume <session> <follow-up>` — continue the same pi conversation and worktree
+- `resume <session> <follow-up>` — continue the same pi conversation and worktree; fails while a run is still active
 - `resume-and-resolve-merge <session> [instructions]` — continue the session with the active conflict list injected
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it

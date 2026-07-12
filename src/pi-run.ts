@@ -166,7 +166,15 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
   const log = join(sessions, `${session.id}.log`);
   const control = join(sessions, `${session.id}.ctl`);
   if (Buffer.byteLength(control) > 103) fail(`Control socket path is too long: ${control}`);
-  if (existsSync(control)) rmSync(control);
+  if (existsSync(control)) {
+    const live = await new Promise<boolean>((resolveProbe) => {
+      const probe = createConnection(control);
+      probe.once("connect", () => { probe.destroy(); resolveProbe(true); });
+      probe.once("error", () => { probe.destroy(); resolveProbe(false); });
+    });
+    if (live) fail(`Session '${session.id}' is currently running; steer it, interrupt it, or wait for it to settle`);
+    rmSync(control); // stale socket left by a crashed run
+  }
 
   const args = [
     "--mode", "rpc",
