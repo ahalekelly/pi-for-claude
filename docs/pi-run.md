@@ -31,7 +31,7 @@ Write a uniquely named plan, then start a session:
 pi-run implement-in-worktree path/to/fix-auth.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree or an unfinished rebase, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. Sessions resumed while a rebase is in progress are exempt. Conflicts against main are not pi’s to resolve — they surface at merge time.
+The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. A rebase left in progress never bounces: it is pi escalating a conflict it shouldn’t judge, and the run completes with a warning listing the conflicted files. Conflicts against main are otherwise not pi’s to resolve — they surface at merge time.
 
 After the run:
 

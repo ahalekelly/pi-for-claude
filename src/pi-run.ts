@@ -171,10 +171,10 @@ function rebaseInProgress(worktree: string): boolean {
 }
 
 // What prevents this worktree from being handed back, phrased as a correction
-// for pi. Empty string when the handback is acceptable. Conflicts against main
-// are not checked here — the orchestrator owns conflict resolution at merge time.
+// for pi. Empty string when the handback is acceptable. Only uncommitted mess is
+// pi's to fix — conflicts and in-progress rebases are decisions, and decisions
+// escalate to the orchestrator instead of bouncing.
 function handbackBlocker(worktree: string): string {
-  if (rebaseInProgress(worktree)) return msg("handback-rebase");
   const status = git(worktree, ["status", "--porcelain"]);
   if (status) return msg("handback-dirty", { status });
   return "";
@@ -341,7 +341,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
             // One correction round: bounce the first unclean handback back to
             // pi; a second one settles anyway and runPrompt reports it to the
             // orchestrator.
-            if (state.kind === "has-result" && !abortRequested && checkHandback && corrections === 0) {
+            if (state.kind === "has-result" && !abortRequested && checkHandback && corrections === 0 && !rebaseInProgress(session.worktree)) {
               const blocker = handbackBlocker(session.worktree);
               if (blocker) {
                 corrections = 1;
@@ -462,6 +462,11 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   process.stdout.write(`${result}\n`);
   if (command.outputAppend) process.stdout.write(`${shell(command.outputAppend, session.worktree)}\n`);
   if (session.kind === "worktree" && command.sandbox === "worktree-write") {
+    if (rebaseInProgress(session.worktree)) {
+      const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
+      process.stdout.write(`\n${msg("handback-rebase-warning", { worktree: session.worktree, conflicts })}\n`);
+      return;
+    }
     const blocker = handbackBlocker(session.worktree);
     if (blocker) process.stdout.write(`\n${msg("handback-warning", { worktree: session.worktree, problem: blocker })}\n`);
   }
