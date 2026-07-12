@@ -314,10 +314,39 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
 
   return await new Promise<string>((resolveRun, reject) => {
     let buffer = "";
+    const question = join(sessions, `${session.id}.question.md`);
+    const stallMs = 5 * 60 * 1000;
+    let questionAnnounced = false;
+    let warnedIntervals = 0;
     let state: { kind: "awaiting-result" } | { kind: "has-result"; result: string } | { kind: "settled"; result: string } | { kind: "failed" } = {
       kind: "awaiting-result",
     };
+    const monitor = setInterval(() => {
+      if (existsSync(question)) {
+        warnedIntervals = 0;
+        if (questionAnnounced) return;
+        process.stdout.write(`${msg("question-from-session", {
+          id: session.id,
+          text: readFileSync(question, "utf8").trim(),
+          path: join(sessions, `${session.id}.answer.md`),
+        })}\n`);
+        questionAnnounced = true;
+        return;
+      }
+      questionAnnounced = false;
+      if (!existsSync(log)) return;
+      const silentMs = Math.max(0, Date.now() - statSync(log).mtimeMs);
+      const intervals = Math.floor(silentMs / stallMs);
+      if (intervals > warnedIntervals) {
+        process.stdout.write(`${msg("session-stalled", {
+          id: session.id,
+          minutes: String(intervals * 5),
+        })}\n`);
+      }
+      warnedIntervals = intervals;
+    }, 500);
     const stop = () => {
+      clearInterval(monitor);
       server.close();
       child.stdin.end();
       child.kill();

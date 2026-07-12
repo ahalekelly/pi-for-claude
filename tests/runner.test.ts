@@ -636,34 +636,45 @@ test("resume refuses a session whose conversation log is missing", () => {
   assert.match(resume.stderr, /Expected one Pi JSONL for session 'lost', found 0/);
 });
 
-test("watch warns once when a live run's log goes silent", async () => {
+test("run warns once per complete interval when its event log goes silent", async () => {
   const root = scratchRepo("pi-run-stall-");
-  const sessions = join(root, ".agents/sessions");
-  mkdirSync(sessions, { recursive: true });
-  const record = {
-    kind: "review",
-    id: "s1",
-    command: "review",
-    mainCheckout: root,
-    worktree: root,
-    createdAt,
-  };
-  const recordPath = fixedSessionPath(sessions, "s1");
-  writeFileSync(recordPath, JSON.stringify(record));
-  writeFileSync(join(sessions, "s1.ctl"), "");
-  const logPath = join(sessions, `${createdAtPrefix}-s1.log`);
-  writeFileSync(logPath, "events\n");
-  const staleTime = new Date(Date.now() - 10 * 60 * 1000);
-  utimesSync(logPath, staleTime, staleTime);
+  const sessions = join(realpathSync(root), ".agents/sessions");
+  const piRunHome = makePiRunHome(root);
+  const plan = join(root, "stall.md");
+  const fakePi = join(root, "stall-pi.mjs");
+  writeFileSync(plan, "Keep running without events.");
+  writeFileSync(
+    fakePi,
+    `#!/usr/bin/env node
+process.stdin.once("data", () => setInterval(() => {}, 1000));
+`,
+  );
+  chmodSync(fakePi, 0o755);
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  const child = spawn(process.execPath, [cli, "watch", "s1"], { cwd: root });
+  const child = spawn(process.execPath, [cli, "run", plan], {
+    cwd: root,
+    env: { ...process.env, PI_BIN: fakePi, PI_RUN_HOME: piRunHome },
+  });
   let stdout = "";
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
     stdout += chunk;
   });
   const deadline = Date.now() + 15000;
+  while (!existsSync(sessions) || !readdirSync(sessions).some((file) => file.endsWith("-stall.pi-run.json"))) {
+    if (Date.now() > deadline) assert.fail("timed out waiting for session metadata");
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+  const recordPath = sessionArtifact(sessions, "stall", "pi-run.json");
+  const logPath = recordPath.replace(/\.pi-run\.json$/, ".log");
+  writeFileSync(logPath, "events\n");
+  const futureTime = new Date(Date.now() + 60 * 1000);
+  utimesSync(logPath, futureTime, futureTime);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 1000));
+  assert.doesNotMatch(stdout, /produced no events/, "a future-dated log is not stalled");
+  const staleTime = new Date(Date.now() - 10 * 60 * 1000);
+  utimesSync(logPath, staleTime, staleTime);
   const waitForWarnings = async (count: number) => {
     while ((stdout.match(/produced no events/g)?.length ?? 0) < count) {
       if (Date.now() > deadline) assert.fail(`timed out waiting for stall warning #${count}`);
@@ -674,17 +685,12 @@ test("watch warns once when a live run's log goes silent", async () => {
     await waitForWarnings(1);
     await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
     assert.equal(stdout.match(/produced no events/g)?.length, 1, "no repeat within the same interval");
-    assert.match(stdout, /Last event: events/, "the warning quotes the log's last line");
+    assert.doesNotMatch(stdout, /Last event:/, "the warning never quotes raw RPC events");
 
     const stalerTime = new Date(Date.now() - 16 * 60 * 1000);
     utimesSync(logPath, stalerTime, stalerTime);
     await waitForWarnings(2);
-
-    rmSync(recordPath);
-    const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
-    assert.equal(exitCode, 0);
   } finally {
-    if (existsSync(recordPath)) rmSync(recordPath);
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 });
@@ -711,26 +717,46 @@ test("discard removes a review session's record without touching git", () => {
   assert.equal(git(root, "status", "--porcelain"), "");
 });
 
-test("watch prints each question once and exits when the session ends", async () => {
-  const root = scratchRepo("pi-run-watch-");
-  const sessions = join(root, ".agents/sessions");
-  mkdirSync(sessions, { recursive: true });
-  const record = {
-    kind: "review",
-    id: "w1",
-    command: "review",
-    mainCheckout: root,
-    worktree: root,
-    createdAt,
-  };
-  const recordPath = fixedSessionPath(sessions, "w1");
-  writeFileSync(recordPath, JSON.stringify(record));
-  const question = join(sessions, "w1.question.md");
-  const answer = join(realpathSync(root), ".agents/sessions", "w1.answer.md");
-  writeFileSync(question, "Which auth flow?");
+test("run prints each consult question once with its answer path", async () => {
+  const root = scratchRepo("pi-run-consult-");
+  const sessions = join(realpathSync(root), ".agents/sessions");
+  const piRunHome = makePiRunHome(root);
+  const plan = join(root, "consult.md");
+  const fakePi = join(root, "consult-pi.mjs");
+  const question = join(sessions, "consult.question.md");
+  const answer = join(sessions, "consult.answer.md");
+  writeFileSync(plan, "Ask the orchestrator.");
+  writeFileSync(
+    fakePi,
+    `#!/usr/bin/env node
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const valueAfter = flag => process.argv[process.argv.indexOf(flag) + 1];
+let input = "";
+process.stdin.on("data", chunk => {
+  input += chunk;
+  if (!input.includes("\\n")) return;
+  writeFileSync(${JSON.stringify(question)}, "Which auth flow?");
+  const timer = setInterval(() => {
+    if (!existsSync(${JSON.stringify(answer)})) return;
+    clearInterval(timer);
+    const id = valueAfter("--session-id");
+    const sessionDir = valueAfter("--session-dir");
+    const message = {role:"assistant", content:[{type:"text", text:"Used the selected auth flow."}]};
+    writeFileSync(join(sessionDir, "2026-01-01T00-00-00-000Z_" + id + ".jsonl"), JSON.stringify({type:"session", id}) + "\\n" + JSON.stringify({type:"message", message}) + "\\n");
+    console.log(JSON.stringify({type:"message_end", message}));
+    console.log(JSON.stringify({type:"agent_settled"}));
+  }, 50);
+});
+`,
+  );
+  chmodSync(fakePi, 0o755);
 
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  const child = spawn(process.execPath, [cli, "watch", "w1"], { cwd: root });
+  const child = spawn(process.execPath, [cli, "run", plan], {
+    cwd: root,
+    env: { ...process.env, PI_BIN: fakePi, PI_RUN_HOME: piRunHome },
+  });
   let stdout = "";
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
@@ -748,20 +774,18 @@ test("watch prints each question once and exits when the session ends", async ()
   try {
     await waitUntil(() => stdout.includes("Which auth flow?"));
     assert.match(stdout, new RegExp(`Answer by writing ${answer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-
-    rmSync(question);
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1500));
-    assert.equal(stdout.match(/Which auth flow\?/g)?.length, 1);
-
-    writeFileSync(question, "Second question, never answered");
-    await waitUntil(() => stdout.includes("Second question"));
-    rmSync(recordPath); // discard with the question still pending must end watch
+    const recordPath = sessionArtifact(sessions, "consult", "pi-run.json");
+    const logPath = recordPath.replace(/\.pi-run\.json$/, ".log");
+    writeFileSync(logPath, "events\n");
+    const staleTime = new Date(Date.now() - 10 * 60 * 1000);
+    utimesSync(logPath, staleTime, staleTime);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1000));
+    assert.doesNotMatch(stdout, /produced no events/, "a pending consult is not stalled");
+    writeFileSync(answer, "Use OAuth.");
     const exitCode = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
     assert.equal(exitCode, 0);
-    assert.match(stdout, /has ended/);
+    assert.equal(stdout.match(/Which auth flow\?/g)?.length, 1);
   } finally {
-    if (existsSync(recordPath)) rmSync(recordPath);
-    if (existsSync(question)) rmSync(question);
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 });
