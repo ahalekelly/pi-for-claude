@@ -5,7 +5,6 @@
   "attachment-missing": "Attachment file does not exist: $path",
   "command-failed": "Command failed: $command",
   "consult-aborted": "Consult aborted",
-  "consult-already-pending": "A consult is already pending for '$id'",
   "consult-requires-env": "Consult requires PI_RUN_SESSION_DIR and PI_RUN_SESSION_ID",
   "consult-timeout": "Orchestrator unavailable; proceed with your best judgment and flag the assumption.",
   "control-socket-too-long": "Control socket path is too long: $path",

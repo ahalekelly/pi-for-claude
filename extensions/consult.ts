@@ -25,7 +25,12 @@ export default function consultExtension(pi: ExtensionAPI) {
         if (!sessionDir || !sessionId) throw new Error(msg("consult-requires-env"));
         const questionPath = join(sessionDir, `${sessionId}.question.md`);
         const answerPath = join(sessionDir, `${sessionId}.answer.md`);
-        if (existsSync(questionPath) || existsSync(answerPath)) throw new Error(msg("consult-already-pending", { id: sessionId }));
+        // Leftover files are stale by construction — this tool blocks, and one
+        // pi process serves the session — e.g. an answer written after a
+        // timeout, or a question orphaned by a crash. A new consult supersedes
+        // them; a stale answer must never be delivered to a fresh question.
+        rmSync(questionPath, { force: true });
+        rmSync(answerPath, { force: true });
         writeFileSync(questionPath, `${question.trim()}\n`, { mode: 0o600 });
         const deadline = Date.now() + timeoutMs;
 
