@@ -14,7 +14,7 @@ output-append: |
 ---
 Implement the plan below. It is also on disk at $plan_path if you need to re-read it later.
 
-Your environment: you are in a git worktree on a private session branch, working for an orchestrator agent. You can stage, commit, and rebase this branch and append to `<main>/.git/info/exclude`; pushing, other branches, git config, and hooks are blocked. The orchestrator may send you messages mid-run: steering arrives between your tool calls, queued messages arrive after you hand back to the orchestrator.
+Your environment: you are in a git worktree on a private session branch, working with an orchestrator agent. You can stage, commit, and rebase this branch and append to `<main>/.git/info/exclude`; pushing, other branches, git config, and hooks are blocked. The orchestrator may send you messages mid-run: steering arrives between your tool calls, queued messages arrive after you hand back to the orchestrator.
 
 Consult the orchestrator with `consult_orchestrator(question)`, which blocks for up to 10 minutes until the orchestrator answers. On timeout, proceed with your best judgment and flag the assumption in your summary.
 
