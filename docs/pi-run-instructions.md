@@ -44,7 +44,6 @@ Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 - `run <plan-file>` — implement a plan directly in the project directory
 - `resume <session> <follow-up>` — continue the same pi conversation in its worktree or project directory
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
-- `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it
 - `sessions` — list session ids, originating commands, and directories
 - `result <session>` — print the last completed assistant response
 - `steer <session> <message>` — deliver a message after the next tool call
@@ -53,7 +52,7 @@ Delegate tasks to GPT-5.6 in Pi with `pi-run`.
 - `merge <session>` — rebase, fast-forward the session's commits onto main, and clean up the worktree and branch
 - `discard <session>` — force-remove the worktree and branch, or close a review or in-place session by removing only its metadata record
 
-Trailing flags on prompt commands (implement-in-worktree/run/resume/review/adversarial-review):
+Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
 - `--model <label-or-id>` — override the prompt's model; labels come from the pi-run checkout's `models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
 - `--thinking <level>` — override the model label's default thinking level

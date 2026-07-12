@@ -59,7 +59,6 @@ Prompt commands:
 - `run <plan-file>` — implement a plan directly in the project directory.
 - `resume <session> <follow-up>` — continue the same pi conversation and worktree or project directory.
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
-- `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label.
 
 Built-in commands do not call a model:
 
