@@ -142,6 +142,16 @@ function shell(command: string, cwd: string): string {
   return result.stdout.trimEnd();
 }
 
+// output-append blocks run traced (`+ command` lines interleaved with their
+// output) so the orchestrator sees what produced each result without the
+// prompt having to document its own commands.
+function tracedShell(command: string, cwd: string): string {
+  const result = spawnSync("sh", ["-c", `exec 2>&1\nset -x\n${command}`], { cwd, encoding: "utf8" });
+  if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
+  if (result.status !== 0) fail(result.stdout?.trim() || msg("command-failed", { command }));
+  return result.stdout.trimEnd();
+}
+
 function record(value: unknown, context: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(msg("must-be-object", { context }));
   return value as Record<string, unknown>;
@@ -476,7 +486,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
   const result = await rpcRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   process.stdout.write(`${result}\n`);
-  if (command.outputAppend) process.stdout.write(`${shell(command.outputAppend, session.worktree)}\n`);
+  if (command.outputAppend) process.stdout.write(`${tracedShell(command.outputAppend, session.worktree)}\n`);
   if (session.kind === "worktree" && command.sandbox === "worktree-write") {
     if (rebaseInProgress(session.worktree)) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);

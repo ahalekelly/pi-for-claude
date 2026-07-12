@@ -61,6 +61,8 @@ sandbox: worktree-write
 worktree: create
 session: new
 consult: Ask when blocked
+output-append: |
+  echo appended
 ---
 Do not run git commit or git push.
 $plan
@@ -115,6 +117,7 @@ process.stdin.on("data", chunk => {
 
   const worktree = join(realpathSync(root), ".agents/worktrees/fix-auth");
   assert.match(output, /Implemented auth\./);
+  assert.match(output, /\+ echo appended\nappended/, "output-append shows each command with its output");
   assert.equal(git(worktree, "branch", "--show-current"), "pi/fix-auth");
   assert.match(readFileSync(captured, "utf8"), /Fix the auth flow\./);
   assert.match(readFileSync(captured, "utf8"), /Do not run git commit or git push/);

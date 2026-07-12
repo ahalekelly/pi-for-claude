@@ -16,15 +16,11 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
 3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
    
-4. While the subagent is running you can also redirect it:
-
-   - `pi-run steer <session> "<message>"` — delivered after the next tool call
-   - `pi-run queue <session> "<message>"` — queued until the current agent task finishes
-   - `pi-run interrupt <session>` — abort the active turn; the session stays resumable
+4. While the subagent is running you can also redirect it with `steer`, `queue`, and `interrupt`.
 
 5. When it completes, read the final response and review the session's work. Pi finishes with everything committed on its private branch, and the output of `git log --oneline --no-decorate "$main_branch..HEAD"` and `git diff --stat "$main_branch...HEAD"` will be appended to Pi's response. Examine Pi's work for errors, oversights, edge cases, subtle bugs, and anywhere pi deviated from your intention — GPT-5.6 can sometimes reward hack without mentioning it.
 
-6. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. You can use this to ask for fixes or additional features that build on top of the existing work. 
+6. Continue a closed session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. Use this to ask for fixes or additional features that would benefit from the context of a closed session.
 
 7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch.
 
@@ -38,13 +34,12 @@ Full pi-run command reference:
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it
 - `sessions` — list session ids, originating commands, and worktrees
 - `result <session>` — print the last completed assistant response
-- `steer <session> <message>` — deliver a message mid-turn, before the next model call
-- `queue <session> <message>` — queue work into the live run, taken up after the current agent run settles
+- `steer <session> <message>` — deliver a message after after the next tool call
+- `queue <session> <message>` — queue a message to be delivered until the current agent task finishes
 - `interrupt <session>` — abort the active turn; the session remains resumable
 - `watch <session>` — stream consult questions for a session; prints each question once with the answer-file path, lives across resumes, exits when the session is merged or discarded
 - `merge <session>` — rebase, fast-forward the session's commits onto main, and clean up the worktree and branch
 - `discard <session>` — force-remove the worktree and branch (review sessions: just the metadata record)
-- `help` — render prompt names, argument hints, and descriptions
 
 Trailing flags on prompt commands (implement-in-worktree/resume/review/adversarial-review):
 
