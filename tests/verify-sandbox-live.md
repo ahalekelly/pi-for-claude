@@ -1,6 +1,6 @@
 # Live sandbox verification
 
-Run this against a clean checkout of `pi-run` after `npm install`. It uses a real pi session and provider, so it is intentionally not part of `npm test`.
+Run this against a clean checkout of `pi-run` after `npm ci`. It uses a real pi session and provider, so it is intentionally not part of `npm test`.
 
 ```sh
 cd /path/to/pi-run
@@ -29,14 +29,15 @@ PI_BIN=pi PI_RUN_HOME=/path/to/pi-run node /path/to/pi-run/src/pi-run.ts impleme
 While the final `sleep 30` runs, inspect it from another terminal:
 
 ```sh
-ps -axo pid,ppid,command | grep '[s]leep 30'
+ps -axo pid,ppid,command | grep -E '[s]leep 30|[b]ash -c'
+test ! -e "$HOME/pi-sandbox-escape-probe"
 ```
 
 Expected results:
 
-- `git status` succeeds. With the global hypa hook installed, its command is rewritten to `hypa git status`; this proves hypa runs successfully inside the sandbox.
+- `git status` succeeds without being rewritten by a globally installed extension.
 - The home-directory `touch` fails and `~/pi-sandbox-escape-probe` does not exist afterwards.
-- The `curl` call fails with a sandbox network denial.
-- The process ancestry for `sleep 30` includes `sandbox-exec` or the Seatbelt-wrapped bash command, not an unsandboxed `/bin/bash -c` child of pi.
+- The `curl` call fails because the sandbox network policy does not permit `example.com`.
+- `sleep 30` runs without an unsandboxed `/bin/bash -c` child of pi. On macOS, `sandbox-exec` applies the Seatbelt policy and then execs into the command, so the wrapper does not remain visible in the process tree.
 
 Remove the scratch repository with `trash "$scratch"` when finished. If the escape probe exists, remove it with `trash "$HOME/pi-sandbox-escape-probe"` after recording the failure.

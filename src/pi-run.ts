@@ -216,6 +216,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     "--name", session.id,
     "--model", model,
     "--thinking", thinking,
+    "--no-extensions",
     "--extension", join(home, "extensions", "sandbox", "index.ts"),
     "--extension", join(home, "extensions", "consult.ts"),
   ];

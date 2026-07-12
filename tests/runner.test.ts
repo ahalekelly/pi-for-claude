@@ -138,8 +138,8 @@ process.stdin.on("data", chunk => {
   if (newline === -1) return;
   const command = JSON.parse(input.slice(0, newline));
   if (command.type !== "prompt") process.exit(2);
-  if (process.env.CAPTURED_ARGS) writeFileSync(process.env.CAPTURED_ARGS, JSON.stringify(process.argv));
-  if (process.env.WRITTEN_FILE) writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
+  writeFileSync(${JSON.stringify(join(root, "pi-args.json"))}, JSON.stringify(process.argv));
+  writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
   const id = valueAfter("--session-id");
   const sessionDir = valueAfter("--session-dir");
   const message = {role:"assistant", content:[{type:"text", text:"Implemented in place."}]};
@@ -252,19 +252,25 @@ test("rpcRun passes the sandboxed bash allowlist in every mode", () => {
   writeFileSync(join(root, "worktree.md"), "Do the thing.\n");
   writeFileSync(join(root, "in-place.md"), "Do the thing.\n");
 
-  const toolsFor = (command: string, ...args: string[]) => {
-    const captured = join(root, `${command}.args.json`);
+  const piArgsFor = (command: string, ...args: string[]) => {
     execFileSync(process.execPath, [cli, command, ...args], {
       cwd: root,
-      env: { ...process.env, PI_BIN: fakePi, PI_RUN_HOME: piRunHome, CAPTURED_ARGS: captured },
+      env: { ...process.env, PI_BIN: fakePi, PI_RUN_HOME: piRunHome, WRITTEN_FILE: join(root, "implemented.txt") },
     });
-    const piArgs = JSON.parse(readFileSync(captured, "utf8")) as string[];
-    return piArgs[piArgs.indexOf("--tools") + 1];
+    const piArgs: unknown = JSON.parse(readFileSync(join(root, "pi-args.json"), "utf8"));
+    assert.ok(Array.isArray(piArgs) && piArgs.every((value) => typeof value === "string"));
+    return piArgs;
   };
 
-  assert.equal(toolsFor("implement-in-worktree", "worktree.md"), "read,bash,write,edit,grep,find,ls");
-  assert.equal(toolsFor("run", "in-place.md"), "read,bash,write,edit,grep,find,ls");
-  assert.equal(toolsFor("review"), "read,bash,grep,find,ls");
+  const worktree = piArgsFor("implement-in-worktree", "worktree.md");
+  const inPlace = piArgsFor("run", "in-place.md");
+  const review = piArgsFor("review");
+  const tools = (args: string[]) => args[args.indexOf("--tools") + 1];
+
+  assert.equal(tools(worktree), "read,bash,write,edit,grep,find,ls");
+  assert.equal(tools(inPlace), "read,bash,write,edit,grep,find,ls");
+  assert.equal(tools(review), "read,bash,grep,find,ls");
+  assert.ok([worktree, inPlace, review].every((args) => args.includes("--no-extensions")));
 });
 
 test("run edits a non-git project in place and discard preserves its files", () => {
