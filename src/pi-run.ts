@@ -144,11 +144,12 @@ function shell(command: string, cwd: string): string {
 
 // output-append blocks run traced (`+ command` lines interleaved with their
 // output) so the orchestrator sees what produced each result without the
-// prompt having to document its own commands.
+// prompt having to document its own commands. They are a best-effort appendix:
+// a failing command's error text appears in the trace, but never fails the run
+// it decorates — so blocks need no defensive guards.
 function tracedShell(command: string, cwd: string): string {
   const result = spawnSync("sh", ["-c", `exec 2>&1\nset -x\n${command}`], { cwd, encoding: "utf8" });
   if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
-  if (result.status !== 0) fail(result.stdout?.trim() || msg("command-failed", { command }));
   return result.stdout.trimEnd();
 }
 
