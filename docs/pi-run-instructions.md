@@ -4,14 +4,14 @@ Delegate implementation tasks to GPT-5.6 in Pi with `pi-run`.
 
 Each implementation runs in its own persistent git worktree and session; state lives under the main checkout's `.agents/`. Commands must be run from inside the project directory. The project directory must be a git repository, feel free to run `git init` if the directory is specific to the project.
 
-1. Write the plan to `.agents/plans/<session>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/worktrees/<session>`, so pick a unique name — starting a `run` with an existing plan basename fails.
+1. Write the plan to `.agents/plans/<session>.md` in the project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<main>/.agents/worktrees/<session>`, so pick a unique name — starting a session with an existing plan basename fails.
 
 Plan length should be proportional to the task; 1/2th as many tokens as the expected diff is a rough prior.
 
 2. Launch in a `run_in_background` Bash (sandbox off, pi needs provider network access):
 
    ```sh
-   pi-run run .agents/plans/<session>.md
+   pi-run implement-in-worktree .agents/plans/<session>.md
    ```
 
 3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. On timeout pi proceeds with its best judgment and reports the assumption. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
@@ -34,7 +34,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
 Full pi-run command reference:
 
-- `run <plan-file>` — implement a plan in a new worktree and session; plan path may be relative to the current directory
+- `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session; plan path may be relative to the current directory
 - `resume <session> <follow-up>` — continue the same pi conversation and worktree; fails while a run is still active
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it
@@ -48,7 +48,7 @@ Full pi-run command reference:
 - `discard <session>` — force-remove the worktree and branch (review sessions: just the metadata record)
 - `help` — render prompt names, argument hints, and descriptions
 
-Trailing flags on prompt commands (run/resume/review/adversarial-review):
+Trailing flags on prompt commands (implement-in-worktree/resume/review/adversarial-review):
 
 - `--model <label-or-id>` — override the prompt's model; labels come from `~/.agents/pi-run/models.json` (`default` is gpt-5.6-terra medium, `best` is gpt-5.6-sol xhigh, `cheap` is gpt-5.6-luna low)
 - `--thinking <level>` — override the model label's default thinking level

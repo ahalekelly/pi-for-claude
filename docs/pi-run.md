@@ -28,7 +28,7 @@ Commands run from inside the project — any subdirectory or linked worktree wor
 Write a uniquely named plan, then start a session:
 
 ```sh
-pi-run run path/to/fix-auth.md
+pi-run implement-in-worktree path/to/fix-auth.md
 ```
 
 The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree — a single commit preferred, multiple acceptable. If a run settles with a dirty tree or an unfinished rebase, the runner sends the problem back to pi once; if it settles unclean again, the run completes with a warning appended to the output and the orchestrator takes over. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt. Conflicts against main are not pi’s to resolve — they surface at merge time.
@@ -55,7 +55,7 @@ Use `pi-run discard fix-auth` to explicitly delete an unwanted session worktree 
 
 Prompt commands:
 
-- `run <plan-file>` — implement a plan in a new worktree and session.
+- `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session.
 - `resume <session> <follow-up>` — continue the same pi conversation and worktree.
 - `resume-and-resolve-merge <session> [instructions]` — continue the session with the active conflict list injected.
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree.
@@ -77,7 +77,7 @@ Prompt commands accept repeatable `--pre <file>` and `--post <file>` attachments
 
 ## Sessions and control
 
-Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Starting a `run` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
+Session JSONL, metadata, event logs, and control sockets live under `<main>/.agents/sessions`, resolved through git’s common directory so they survive linked-worktree removal. Starting `implement-in-worktree` with an existing plan basename fails; use `resume` or rename the plan. Starting a prompt command against a session whose run is still active also fails — steer it, interrupt it, or wait for it to settle. A stale control socket left by a crashed run is cleaned up automatically.
 
 During a live turn, pi can call `consult_orchestrator(question)`. The tool writes `<session>.question.md` beside the session log and waits up to ten minutes for `<session>.answer.md`. Write the answer file to unblock the turn. Both files are removed after the answer is read. A timeout tells pi to proceed with its best judgment and report the assumption.
 

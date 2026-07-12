@@ -51,7 +51,7 @@ function makePiRunHome(root: string): string {
   cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(piRunHome, "prompts/strings.json"));
   writeFileSync(join(piRunHome, "models.json"), '{"default":"openai-codex/gpt-test"}\n');
   writeFileSync(
-    join(piRunHome, "prompts", "run.md"),
+    join(piRunHome, "prompts", "implement-in-worktree.md"),
     `---
 description: Implement a plan
 argument-hint: "<plan-file>"
@@ -102,7 +102,7 @@ process.stdin.on("data", chunk => {
   );
   chmodSync(fakePi, 0o755);
 
-  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "run", "fix-auth.md"], {
+  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-run.ts"), "implement-in-worktree", "fix-auth.md"], {
     encoding: "utf8",
     cwd: root,
     env: {
@@ -166,7 +166,7 @@ test("failures before and during a run fail fast without burning the session id"
   const worktree = join(root, ".agents/worktrees/plan");
   const sessionFile = join(root, ".agents/sessions/plan.pi-run.json");
   const run = (env: Record<string, string>, ...args: string[]) =>
-    spawnSync(process.execPath, [cli, "run", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
+    spawnSync(process.execPath, [cli, "implement-in-worktree", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, ...env }, timeout: 15000 });
 
   const badModel = run({}, "plan.md", "--model", "nope");
   assert.equal(badModel.status, 1);
@@ -221,7 +221,7 @@ test("a live control socket blocks a new run; a stale one is cleaned up", async 
   writeFileSync(crashPi, `#!/usr/bin/env node\nprocess.exit(2);\n`);
   chmodSync(crashPi, 0o755);
   const run = (plan: string) =>
-    spawnSync(process.execPath, [cli, "run", plan], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, PI_BIN: crashPi }, timeout: 15000 });
+    spawnSync(process.execPath, [cli, "implement-in-worktree", plan], { encoding: "utf8", cwd: root, env: { ...process.env, PI_RUN_HOME: piRunHome, PI_BIN: crashPi }, timeout: 15000 });
 
   writeFileSync(join(root, "live.md"), "Do the thing.\n");
   const server = createNetServer();
@@ -291,7 +291,7 @@ test("an unclean handback bounces back to pi until it merges cleanly", () => {
   const piRunHome = makePiRunHome(root);
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
   const captured = join(root, "captured.txt");
-  const output = execFileSync(process.execPath, [cli, "run", "plan.md"], {
+  const output = execFileSync(process.execPath, [cli, "implement-in-worktree", "plan.md"], {
     encoding: "utf8",
     cwd: root,
     env: { ...process.env, PI_BIN: writeBouncePi(root), PI_RUN_HOME: piRunHome, CAPTURED: captured, FIX: "1" },
@@ -308,7 +308,7 @@ test("a second unclean handback settles and reports the problem to the orchestra
   writeFileSync(join(root, "plan.md"), "Do the thing.\n");
   const piRunHome = makePiRunHome(root);
   const cli = join(import.meta.dirname, "../src/pi-run.ts");
-  const run = spawnSync(process.execPath, [cli, "run", "plan.md"], {
+  const run = spawnSync(process.execPath, [cli, "implement-in-worktree", "plan.md"], {
     encoding: "utf8",
     cwd: root,
     env: { ...process.env, PI_BIN: writeBouncePi(root), PI_RUN_HOME: piRunHome },
