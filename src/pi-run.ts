@@ -520,7 +520,7 @@ function merge(project: string, id: string): void {
     const rebase = spawnSync("git", ["rebase", mainBranch], { cwd: session.worktree, encoding: "utf8" });
     if (rebase.status !== 0) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
-      fail(msg("rebase-stopped-with-conflicts", { conflicts, worktree: session.worktree }));
+      fail(msg("rebase-stopped-with-conflicts", { conflicts, worktree: session.worktree, id: session.id }));
     }
     if (mainHead !== session.baseCommit) {
       session.mergeState = { kind: "rebased", onto: mainHead };

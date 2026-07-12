@@ -14,7 +14,7 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
    pi-run implement-in-worktree .agents/plans/<session>.md
    ```
 
-3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. On timeout pi proceeds with its best judgment and reports the assumption. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
+3. Pi can consult you for questions. To facilitate this, immediately start a persistent Monitor running `pi-run watch <session>`. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. `pi-run watch` will automatically return and close the Monitor after session is merged or discarded.
    
 4. While the subagent is running you can also redirect it:
 
@@ -26,16 +26,14 @@ Plan length should be proportional to the task; 1/2th as many tokens as the expe
 
 6. Continue a session with `pi-run resume <session> "<follow-up prompt>"` — same conversation, same worktree. You can use this to ask for fixes or additional features that build on top of the existing work. 
 
-7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch. Merge fails on uncommitted leftovers — have pi commit them, or delete or gitignore stray files during review.
-
-   If main moved, `pi-run merge` rebases and stops so verification can be rerun against the new base; run `merge` again after verifying. On rebase conflicts the command reports the conflicted files and leaves the rebase in progress — resolve them yourself, or delegate with `pi-run resume <session> "<instructions>"`, then review the resolution, stage it, `git rebase --continue`, re-verify, and `merge` again.
+7. To accept the work, run `pi-run merge <session>` — rebases onto the main checkout's current branch, fast-forwards pi's commits onto main verbatim, and deletes the worktree and branch.
 
 8. Discard a session's worktree with `pi-run discard <session>` (never just delete the worktree directory). Once a session worktree is deleted with `merge` or `discard`, the session cannot be resumed, but the session logs are still available at `.agents/sessions/<timestamp>_<session>.jsonl` and `.agents/sessions/<session>.log` if you need to review what happened.
 
 Full pi-run command reference:
 
 - `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session; plan path may be relative to the current directory
-- `resume <session> <follow-up>` — continue the same pi conversation and worktree; fails while a run is still active
+- `resume <session> <follow-up>` — continue the same pi conversation and worktree
 - `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
 - `adversarial-review [session] [focus] [--base <ref>]` — read-only challenge review using the `best` model label; focus text aims it
 - `sessions` — list session ids, originating commands, and worktrees
