@@ -162,6 +162,29 @@ function assistantText(messageValue: unknown): string | undefined {
   return text.join("");
 }
 
+function rebaseInProgress(worktree: string): boolean {
+  return existsSync(git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"]));
+}
+
+// Model-facing text lives in prompts/messages, never inline in code.
+function messageTemplate(name: string, injections: Record<string, string>): string {
+  return renderTemplate(readFileSync(join(home, "prompts", "messages", `${name}.md`), "utf8").trim(), [], injections);
+}
+
+// What prevents this worktree from being handed back and merged cleanly, phrased
+// as a correction for pi. Empty string when the handback is acceptable.
+function handbackBlocker(worktree: string, main: string): string {
+  if (rebaseInProgress(worktree)) return messageTemplate("handback-rebase", {});
+  const status = git(worktree, ["status", "--porcelain"]);
+  if (status) return messageTemplate("handback-dirty", { status });
+  const mainBranch = git(main, ["branch", "--show-current"]);
+  if (!mainBranch) return "";
+  const merge = spawnSync("git", ["merge-tree", "--write-tree", mainBranch, "HEAD"], { cwd: worktree, encoding: "utf8" });
+  if (merge.status === 0) return "";
+  if (merge.status !== 1) fail(merge.stderr.trim() || "git merge-tree failed");
+  return messageTemplate("handback-conflicts", { main_branch: mainBranch });
+}
+
 async function rpcRun(session: Session, sessions: string, command: PromptCommand, prompt: string, model: string, thinking: string): Promise<string> {
   const log = join(sessions, `${session.id}.log`);
   const control = join(sessions, `${session.id}.ctl`);
@@ -188,6 +211,11 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
   ];
   if (command.sandbox === "read-only") args.push("--tools", "read,bash,grep,find,ls");
 
+  // Sessions that start mid-rebase (resume-and-resolve-merge) legitimately hand
+  // back an unfinished rebase; everything else must settle cleanly mergeable.
+  const checkHandback =
+    session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);
+
   const child = spawn(piBin, args, {
     cwd: session.worktree,
     env: {
@@ -206,6 +234,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
 
   let nextId = 1;
   let abortRequested = false;
+  let corrections = 0;
   const pending = new Map<string, (response: string) => void>();
   const send = (value: Record<string, unknown>): string => {
     const id = `pi-run-${nextId++}`;
@@ -314,6 +343,18 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
             continue;
           }
           if (event.type === "agent_settled") {
+            if (state.kind === "has-result" && !abortRequested && checkHandback) {
+              const blocker = handbackBlocker(session.worktree, session.mainCheckout);
+              if (blocker && corrections === 1) {
+                failRun(new Error(`Session '${session.id}' cannot hand back cleanly after a reminder; resume it or clean up ${session.worktree}. Its last response is available via 'pi-run result'.`));
+                return;
+              }
+              if (blocker) {
+                corrections += 1;
+                send({ type: "prompt", message: blocker });
+                continue;
+              }
+            }
             finish();
             continue;
           }

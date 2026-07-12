@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -48,6 +48,7 @@ function scratchRepo(prefix: string): string {
 function makePiRunHome(root: string): string {
   const piRunHome = join(root, "pi-run-home");
   mkdirSync(join(piRunHome, "prompts"), { recursive: true });
+  cpSync(join(import.meta.dirname, "../prompts/messages"), join(piRunHome, "prompts/messages"), { recursive: true });
   writeFileSync(join(piRunHome, "models.json"), '{"default":"openai-codex/gpt-test"}\n');
   writeFileSync(
     join(piRunHome, "prompts", "run.md"),
@@ -238,6 +239,83 @@ test("a live control socket blocks a new run; a stale one is cleaned up", async 
   const proceeded = run("stale.md");
   assert.equal(proceeded.status, 1);
   assert.match(proceeded.stderr, /pi exited before agent_settled \(2\)/, "the stale socket must be removed so the run reaches pi");
+});
+
+function writeBouncePi(root: string): string {
+  const fakePi = join(root, "bounce-pi.mjs");
+  writeFileSync(
+    fakePi,
+    `#!/usr/bin/env node
+import { execSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+const valueAfter = flag => process.argv[process.argv.indexOf(flag) + 1];
+const reply = (id, text) => {
+  const message = {role:"assistant", content:[{type:"text", text}]};
+  writeFileSync(join(valueAfter("--session-dir"), "2026-01-01T00-00-00-000Z_" + valueAfter("--session-id") + ".jsonl"), JSON.stringify({type:"message", message}) + "\\n");
+  console.log(JSON.stringify({type:"response", id:id, command:"prompt", success:true}));
+  console.log(JSON.stringify({type:"message_end", message}));
+  console.log(JSON.stringify({type:"agent_settled"}));
+};
+let round = 0;
+let input = "";
+process.stdin.on("data", chunk => {
+  input += chunk;
+  let newline;
+  while ((newline = input.indexOf("\\n")) !== -1) {
+    const command = JSON.parse(input.slice(0, newline));
+    input = input.slice(newline + 1);
+    if (command.type !== "prompt") continue;
+    round += 1;
+    if (round === 1) {
+      writeFileSync("dirt.txt", "dirt\\n");
+      reply(command.id, "Left dirt.");
+    } else if (process.env.FIX === "1") {
+      writeFileSync(process.env.CAPTURED, command.message);
+      execSync("git add -A && git commit -m 'Fix dirt'");
+      reply(command.id, "Committed.");
+    } else {
+      reply(command.id, "Still dirty.");
+    }
+  }
+});
+`,
+  );
+  chmodSync(fakePi, 0o755);
+  return fakePi;
+}
+
+test("an unclean handback bounces back to pi until it merges cleanly", () => {
+  const root = scratchRepo("pi-run-bounce-");
+  writeFileSync(join(root, "plan.md"), "Do the thing.\n");
+  const piRunHome = makePiRunHome(root);
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const captured = join(root, "captured.txt");
+  const output = execFileSync(process.execPath, [cli, "run", "plan.md"], {
+    encoding: "utf8",
+    cwd: root,
+    env: { ...process.env, PI_BIN: writeBouncePi(root), PI_RUN_HOME: piRunHome, CAPTURED: captured, FIX: "1" },
+  });
+  assert.match(output, /Committed\./);
+  assert.match(readFileSync(captured, "utf8"), /uncommitted changes/);
+  const worktree = join(realpathSync(root), ".agents/scratchpad/worktrees/plan");
+  assert.equal(git(worktree, "status", "--porcelain"), "");
+  assert.equal(git(worktree, "log", "-1", "--format=%s"), "Fix dirt");
+});
+
+test("a session that cannot hand back cleanly fails after one reminder", () => {
+  const root = scratchRepo("pi-run-stubborn-");
+  writeFileSync(join(root, "plan.md"), "Do the thing.\n");
+  const piRunHome = makePiRunHome(root);
+  const cli = join(import.meta.dirname, "../src/pi-run.ts");
+  const run = spawnSync(process.execPath, [cli, "run", "plan.md"], {
+    encoding: "utf8",
+    cwd: root,
+    env: { ...process.env, PI_BIN: writeBouncePi(root), PI_RUN_HOME: piRunHome },
+    timeout: 15000,
+  });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /cannot hand back cleanly after a reminder/);
 });
 
 test("discard removes a direct session's record without touching git", () => {

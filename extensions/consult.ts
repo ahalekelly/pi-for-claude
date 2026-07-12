@@ -32,10 +32,8 @@ export default function consultExtension(pi: ExtensionAPI) {
         }
         if (!existsSync(answerPath)) {
           rmSync(questionPath, { force: true });
-          return {
-            content: [{ type: "text", text: "Orchestrator unavailable; proceed with your best judgment and flag the assumption." }],
-            details: {},
-          };
+          const timeoutMessage = readFileSync(join(import.meta.dirname, "..", "prompts", "messages", "consult-timeout.md"), "utf8").trim();
+          return { content: [{ type: "text", text: timeoutMessage }], details: {} };
         }
         const answer = readFileSync(answerPath, "utf8").trim();
         rmSync(questionPath);

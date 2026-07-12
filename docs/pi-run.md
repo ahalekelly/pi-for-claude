@@ -31,7 +31,7 @@ Write a uniquely named plan, then start a session:
 pi-run run path/to/fix-auth.md
 ```
 
-The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree with a single well-messaged commit.
+The plan basename becomes the session id (`fix-auth`). The runner creates branch `pi/fix-auth` and worktree `<main>/.agents/scratchpad/worktrees/fix-auth`. Pi commits its work on the private branch and hands back a clean tree with a single well-messaged commit. If a run settles with a dirty tree, an unfinished rebase, or a branch that conflicts with main, the runner sends the problem back to pi once; a second unclean handback fails the run. Sessions that start mid-rebase (`resume-and-resolve-merge`) are exempt.
 
 After the run:
 
@@ -102,4 +102,4 @@ The sandbox extension is a fail-closed adaptation of the vetted `@sysid/pi-sandb
 
 ## Prompt files
 
-Commands are Markdown files under `prompts/`. Required frontmatter fields are `description`, `argument-hint`, `model`, `sandbox`, `worktree`, and `session`. `thinking` is optional when the selected model label supplies it. Optional `inject` entries run trusted shell commands in the target worktree; `output-append` runs after a completed turn. Template bodies support pi positional syntax (`$1`, `$@`, `$ARGUMENTS`, `${1:-default}`, and `${@:N:L}`) plus named injected values.
+Commands are Markdown files under `prompts/`. All model-facing text lives here: `prompts/messages/` holds the non-command templates (handback corrections, the consult timeout notice), rendered with the same `$name` placeholder syntax — code never embeds prompt text. Required frontmatter fields are `description`, `argument-hint`, `model`, `sandbox`, `worktree`, and `session`. `thinking` is optional when the selected model label supplies it. Optional `inject` entries run trusted shell commands in the target worktree; `output-append` runs after a completed turn. Template bodies support pi positional syntax (`$1`, `$@`, `$ARGUMENTS`, `${1:-default}`, and `${@:N:L}`) plus named injected values.
