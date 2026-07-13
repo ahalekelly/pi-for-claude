@@ -192,6 +192,17 @@ function shell(command: string, cwd: string): string {
   return result.stdout.trimEnd();
 }
 
+function bestEffortInputShell(command: string, cwd: string): string {
+  const result = spawnSync("sh", ["-c", `exec 2>&1\n${command}`], { cwd, encoding: "utf8" });
+  if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
+  const output = result.stdout.trimEnd();
+  if (result.status === 0) return output;
+  const status = result.status === null ? `signal ${result.signal ?? "unknown"}` : `exit ${result.status}`;
+  const failure = msg("input-shell-failed", { command, status, output: output || msg("no-command-output") });
+  process.stdout.write(`${failure}\n`);
+  return failure;
+}
+
 // Output shell blocks run traced (`+ command` lines interleaved with their
 // output) so the orchestrator sees what produced each result. They are
 // best-effort: a failing command's error text appears in the trace, but never
@@ -524,7 +535,7 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
         input.push(entry.text.trimEnd());
         break;
       case "shell":
-        input.push(shell(entry.shell, worktree));
+        input.push(bestEffortInputShell(entry.shell, worktree));
         break;
       default: {
         const unknownEntry: never = entry;

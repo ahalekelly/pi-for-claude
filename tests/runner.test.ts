@@ -88,6 +88,9 @@ consult: Ask when blocked
 input:
   - shell: |
       printf 'Context generated before Pi runs.'
+  - shell: |
+      printf 'Expected input failure.' >&2
+      exit 7
   - text: |
       Additional input text.
   - prompt
@@ -248,8 +251,10 @@ process.stdin.on("data", chunk => {
 
   const worktree = join(realpathSync(root), ".agents/worktrees/fix-auth");
   assert.match(output, /Before Pi:\n\+ echo before\nbefore\nImplemented auth\.\nAfter Pi:\n\+ echo after\nafter/);
+  assert.match(output, /WARNING: Input shell command failed \(exit 7\), but the run is continuing anyway\./);
   assert.equal(git(worktree, "branch", "--show-current"), "pi/fix-auth");
-  assert.match(readFileSync(captured, "utf8"), /^Context generated before Pi runs\.\n\nAdditional input text\./);
+  assert.match(readFileSync(captured, "utf8"), /^Context generated before Pi runs\.\n\nWARNING: Input shell command failed \(exit 7\), but the run is continuing anyway\./);
+  assert.match(readFileSync(captured, "utf8"), /Command output:\nExpected input failure\.\n\nAdditional input text\./);
   assert.match(readFileSync(captured, "utf8"), /Fix the auth flow\./);
   assert.match(readFileSync(captured, "utf8"), /Do not run git commit or git push/);
 

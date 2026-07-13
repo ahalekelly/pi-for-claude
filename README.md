@@ -170,7 +170,7 @@ A single `*` selects the registered model with the highest one- or two-part nume
 
 ## Reusable Prompts
 
-Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, sandbox, and session lifecycle; their body defines the main prompt sent to Pi. The ordered `input` list assembles Pi's message: `prompt` inserts the rendered Markdown body, `text` inserts literal text, and strict `shell` inserts command output. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and best-effort `shell` emits traced command output. Trusted shell entries run outside Pi's sandbox. The included commands are useful examples.
+Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, sandbox, and session lifecycle; their body defines the main prompt sent to Pi. The ordered `input` list assembles Pi's message: `prompt` inserts the rendered Markdown body, `text` inserts literal text, and best-effort `shell` inserts command output. A failed input shell sends the same warning to Pi and Claude, then the run continues. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and best-effort `shell` emits traced command output. Trusted shell entries run outside Pi's sandbox. The included commands are useful examples.
 
 ## Sandbox
 
