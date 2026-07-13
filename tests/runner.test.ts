@@ -41,6 +41,30 @@ test("mainCheckout resolves the shared checkout from a linked worktree", () => {
   assert.equal(mainCheckout(linked), realpathSync(root));
 });
 
+test("mainCheckout resolves a submodule checkout and its linked worktrees", () => {
+  const source = mkdtempSync(join(tmpdir(), "pi-for-claude-sub-src-"));
+  git(source, "init", "-b", "main");
+  git(source, "config", "commit.gpgsign", "false");
+  git(source, "config", "user.email", "pi-for-claude@example.test");
+  git(source, "config", "user.name", "pi-for-claude test");
+  writeFileSync(join(source, "README.md"), "sub\n");
+  git(source, "add", "README.md");
+  git(source, "commit", "-m", "initial");
+
+  const superRoot = mkdtempSync(join(tmpdir(), "pi-for-claude-super-"));
+  git(superRoot, "init", "-b", "main");
+  git(superRoot, "config", "commit.gpgsign", "false");
+  git(superRoot, "config", "user.email", "pi-for-claude@example.test");
+  git(superRoot, "config", "user.name", "pi-for-claude test");
+  git(superRoot, "-c", "protocol.file.allow=always", "submodule", "add", source, "sub");
+  const sub = join(superRoot, "sub");
+  assert.equal(mainCheckout(sub), realpathSync(sub));
+
+  const linked = join(superRoot, "sub-linked");
+  git(sub, "worktree", "add", "-b", "topic", linked);
+  assert.equal(mainCheckout(linked), realpathSync(sub));
+});
+
 test("mainCheckout rejects a bare repository", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-bare-"));
   git(root, "init", "--bare");

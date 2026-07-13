@@ -29,6 +29,12 @@ export function mainCheckout(projectDir: string): string {
   }
   const commonDir = result.stdout.trim();
   if (git(project, ["rev-parse", "--is-bare-repository"]) === "true") throw new Error(msg("bare-repository-unsupported"));
+  // A submodule's git dir lives under the superproject's .git/modules, with
+  // core.worktree pointing back at the checkout. (`git worktree list` cannot
+  // substitute here: for submodules it reports the git dir as the main
+  // worktree.)
+  const coreWorktree = spawnSync("git", ["-C", commonDir, "config", "core.worktree"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (coreWorktree.status === 0) return resolve(commonDir, coreWorktree.stdout.trim());
   if (basename(commonDir) !== ".git") throw new Error(msg("unsupported-git-common-dir", { dir: commonDir }));
   return dirname(commonDir);
 }
