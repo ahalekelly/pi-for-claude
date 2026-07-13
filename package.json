@@ -39,10 +39,13 @@
     "agent-browser": "0.31.1",
     "pi-agent-browser-native": "0.2.66",
     "pi-web-access": "0.13.0",
+    "shell-quote": "1.10.0",
+    "trash-cli": "7.2.0",
     "typebox": "1.1.38"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/shell-quote": "1.7.5",
     "typescript": "^5.9.0"
   }
 }

@@ -20,7 +20,7 @@
       "~/.gnupg",
       "~/.config/gcloud"
     ],
-    "allowWrite": [".", "/tmp/claude"],
+    "allowWrite": [".", "/tmp/claude", "~/.Trash", "~/.local/share/Trash"],
     "denyWrite": [
       ".git",
       "config.worktree",

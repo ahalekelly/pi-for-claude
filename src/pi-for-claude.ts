@@ -290,6 +290,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
       PI_FOR_CLAUDE_SANDBOX_MODE: command.sandbox,
       PI_FOR_CLAUDE_SESSION_DIR: sessions,
       PI_FOR_CLAUDE_SESSION_ID: session.id,
+      PI_FOR_CLAUDE_SYSTEM_PATH: executablePath,
       PATH: `${join(dirname(agentBrowserPackage), ".bin")}${delimiter}${executablePath}`,
     },
     stdio: ["pipe", "pipe", "pipe"],

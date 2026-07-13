@@ -11,6 +11,7 @@ import {
 import { SandboxManager, type SandboxRuntimeConfig } from "@sysid/sandbox-runtime-improved";
 
 import { renderString } from "../../src/core.ts";
+import { usesRm } from "./command-guard.ts";
 import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.ts";
 
 type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
@@ -48,7 +49,9 @@ function loadPolicy(readOnly: boolean): Policy {
     },
     filesystem: {
       denyRead: stringArray(filesystem.denyRead, "filesystem.denyRead"),
-      allowWrite: readOnly ? ["/tmp/claude"] : stringArray(filesystem.allowWrite, "filesystem.allowWrite"),
+      allowWrite: readOnly
+        ? ["/tmp/claude", "~/.Trash", "~/.local/share/Trash"]
+        : stringArray(filesystem.allowWrite, "filesystem.allowWrite"),
       denyWrite: stringArray(filesystem.denyWrite, "filesystem.denyWrite"),
     },
   };
@@ -89,13 +92,24 @@ function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
 }
 
 function sandboxedBash(): BashOperations {
+  const environment = process.platform === "darwin"
+    ? { ...process.env, PATH: process.env.PI_FOR_CLAUDE_SYSTEM_PATH }
+    : process.env;
+  if (!environment.PATH) throw new Error(msg("path-required"));
+
   return {
     async exec(command, cwd, { onData, signal, timeout }) {
+      if (usesRm(command)) throw new Error(msg("rm-blocked"));
       if (!existsSync(cwd)) throw new Error(msg("cwd-does-not-exist", { cwd }));
       const timeoutSeconds = timeout && timeout > 0 ? Math.min(timeout, 600) : 600;
       const wrapped = await SandboxManager.wrapWithSandbox(command);
       return await new Promise((resolve, reject) => {
-        const child = spawn("bash", ["-c", wrapped], { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+        const child = spawn("bash", ["-c", wrapped], {
+          cwd,
+          detached: true,
+          env: environment,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
         let timedOut = false;
         const timer = setTimeout(() => {
           timedOut = true;
@@ -134,6 +148,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   pi.registerTool({
     ...localBash,
     label: "bash (sandboxed)",
+    description: `${localBash.description} The rm command is blocked because permanent deletion is not recoverable; use trash instead.`,
     async execute(id, params, signal, onUpdate) {
       if (state === "failed") throw new Error(msg("sandbox-init-failed-blocked"));
       if (state === "starting") throw new Error(msg("sandbox-not-initialized-blocked"));

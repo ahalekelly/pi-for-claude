@@ -186,6 +186,7 @@ process.stdin.on("data", chunk => {
   if (command.type !== "prompt") process.exit(2);
   writeFileSync(${JSON.stringify(join(root, "pi-args.json"))}, JSON.stringify(process.argv));
   writeFileSync(${JSON.stringify(join(root, "pi-path.txt"))}, process.env.PATH);
+  writeFileSync(${JSON.stringify(join(root, "pi-system-path.txt"))}, process.env.PI_FOR_CLAUDE_SYSTEM_PATH);
   writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
   const id = valueAfter("--session-id");
   const sessionDir = valueAfter("--session-dir");
@@ -420,6 +421,7 @@ test("rpcRun passes the sandboxed bash allowlist in every mode", () => {
     assert.ok(extensions(args).some((path) => path.endsWith("pi-agent-browser-native/dist/extensions/agent-browser/index.js")));
   }
   assert.equal(readFileSync(join(root, "pi-path.txt"), "utf8").split(delimiter)[0], resolve(import.meta.dirname, "../node_modules/.bin"));
+  assert.equal(readFileSync(join(root, "pi-system-path.txt"), "utf8"), process.env.PATH);
 });
 
 test("run edits a non-git project in place and discard preserves its files", () => {

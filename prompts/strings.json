@@ -77,6 +77,7 @@
   "requires-plan-file": "$name requires a plan file",
   "requires-session-id": "$name requires a session id",
   "role-must-be-string": "$context role must be a string",
+  "rm-blocked": "rm is blocked because it permanently deletes files and cannot be undone. Use 'trash <path>' instead. On Linux and Windows this is the npm package trash-cli",
   "rpc-event-type-not-string": "RPC event type must be a string",
   "rpc-response-id-not-string": "RPC response id must be a string",
   "sandbox-field-not-string-array": "Sandbox field '$field' must be an array of non-empty strings",

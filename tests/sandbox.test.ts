@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { usesRm } from "../extensions/sandbox/command-guard.ts";
 import { readBlocked, writeBlocked } from "../extensions/sandbox/path-guard.ts";
 
 const config = {
@@ -12,6 +13,35 @@ const config = {
   denyWrite: [".env", ".git", "*.pem"],
   gitWrite: [],
 };
+
+test("rm guard blocks permanent deletion commands", () => {
+  for (const command of [
+    "rm file.txt",
+    "rm.exe file.txt",
+    "/bin/rm -rf build",
+    "echo ready && rm file.txt",
+    "echo ready\nrm file.txt",
+    "command rm file.txt",
+    "sudo -u root rm file.txt",
+    "env MODE=test rm file.txt",
+    "find . -name '*.tmp' -exec rm {} ;",
+    "find . -name '*.tmp' -execdir /bin/rm {} ;",
+    "find . -name '*.tmp' -exec sudo rm {} ;",
+    "printf '%s\\n' file.txt | xargs rm",
+    "bash -c 'rm file.txt'",
+    "if rm file.txt; then echo removed; fi",
+  ]) assert.equal(usesRm(command), true, command);
+});
+
+test("rm guard allows harmless mentions", () => {
+  for (const command of [
+    "echo rm",
+    "printf '%s\\n' rm",
+    "grep rm README.md",
+    "trash build",
+    "echo broom",
+  ]) assert.equal(usesRm(command), false, command);
+});
 
 test("write guard allows project files and blocks git metadata and secrets", () => {
   assert.equal(writeBlocked("src/app.ts", config, "/work/project", false), "");
