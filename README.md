@@ -29,10 +29,6 @@ npm install --global github:ahalekelly/pi-for-claude
 
 Log in to your model providers of choice on Pi.
 
-Web research is provided by `pi-web-access`, using available Pi provider authentication or API keys such as `BRAVE_API_KEY`, `EXA_API_KEY`, or `OPENAI_API_KEY`. Browser automation is provided by `pi-agent-browser-native`, which exposes the bundled `agent-browser` runtime through the native `agent_browser` Pi tool and keeps its browser state separate from the user's normal browser profile unless a task explicitly selects one.
-
-`pi-for-claude` loads its extensions explicitly. Extensions installed in the user's normal system Pi configuration are not discovered or inherited.
-
 Add the instructions to Claude Code's global `CLAUDE.md`:
 
 ```sh
@@ -44,6 +40,21 @@ Ignore pi-for-claude's project files globally:
 ```sh
 printf '%s\n' .agents/sessions/ .agents/plans/ .agents/worktrees/ >> ~/.config/git/ignore
 ```
+
+Skill files are automatically loaded from the typical Pi locations:
+
+```
+~/.agents/skills/
+~/.pi/agent/skills/
+.agents/skills
+.pi/skills/
+```
+
+Extensions installed in the user's normal system Pi configuration are not loaded.
+
+Web research is provided by `pi-web-access`, using available Pi provider authentication or API keys such as `BRAVE_API_KEY`, `EXA_API_KEY`, or `OPENAI_API_KEY`.
+
+Browser automation is provided by `pi-agent-browser-native`, which exposes the bundled `agent-browser` runtime through the native `agent_browser` Pi tool and keeps its browser state separate from the user's normal browser profile unless the agent specifies otherwise.
 
 ## Running Pi-for-Claude
 
