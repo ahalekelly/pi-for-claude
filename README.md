@@ -10,6 +10,7 @@ Features:
 - View Pi agent sessions live in your browser
 - Optional git worktrees for each Pi agent. Automatically handles basic rebases
 - Sandbox each run with scoped filesystem and network access
+- Built-in web research and browser automation tools
 - A simple format to save prompts and workflows. Separate model and sandbox settings for each saved prompt
 
 Each Pi session shows up as a "monitor" in the Claude Code status bar, because Claude is monitoring the session.
@@ -27,6 +28,8 @@ npm install --global github:ahalekelly/pi-for-claude
 ```
 
 Log in to your model providers of choice on Pi.
+
+Web research works through `pi-web-access`. It uses available Pi provider authentication or API keys such as `BRAVE_API_KEY`, `EXA_API_KEY`, or `OPENAI_API_KEY`. Browser automation uses `agent-browser` through the native `agent_browser` Pi tool and keeps its browser state separate from the user's normal browser profile unless a task explicitly selects one.
 
 Add the instructions to Claude Code's global `CLAUDE.md`:
 
@@ -165,5 +168,7 @@ Each prompt chooses one sandbox:
 - `read-only` cannot edit the project
 
 All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. The Pi process retains access to its model provider.
+
+The bundled web and browser tools make network requests directly from the Pi process, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
 
 Session data lives under `<main>/.agents/sessions`. In git projects, pi-for-claude resolves this through the shared checkout so sessions survive worktree removal.

@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, delimiter, join, resolve } from "node:path";
 import test from "node:test";
 
 import { mainCheckout, sessionIdFromPlan } from "../src/runner.ts";
@@ -185,6 +185,7 @@ process.stdin.on("data", chunk => {
   const command = JSON.parse(input.slice(0, newline));
   if (command.type !== "prompt") process.exit(2);
   writeFileSync(${JSON.stringify(join(root, "pi-args.json"))}, JSON.stringify(process.argv));
+  writeFileSync(${JSON.stringify(join(root, "pi-path.txt"))}, process.env.PATH);
   writeFileSync(process.env.WRITTEN_FILE, "implemented\\n");
   const id = valueAfter("--session-id");
   const sessionDir = valueAfter("--session-dir");
@@ -406,11 +407,19 @@ test("rpcRun passes the sandboxed bash allowlist in every mode", () => {
   const inPlace = piArgsFor("run", "in-place.md");
   const review = piArgsFor("review");
   const tools = (args: string[]) => args[args.indexOf("--tools") + 1];
+  const extensions = (args: string[]) => args.flatMap((arg, index) => arg === "--extension" ? [args[index + 1]!] : []);
 
-  assert.equal(tools(worktree), "read,bash,write,edit,grep,find,ls");
-  assert.equal(tools(inPlace), "read,bash,write,edit,grep,find,ls");
-  assert.equal(tools(review), "read,bash,grep,find,ls");
-  assert.ok([worktree, inPlace, review].every((args) => args.includes("--no-extensions")));
+  const capabilities = "web_search,fetch_content,get_search_content,agent_browser";
+  assert.equal(tools(worktree), `read,bash,write,edit,grep,find,ls,${capabilities}`);
+  assert.equal(tools(inPlace), `read,bash,write,edit,grep,find,ls,${capabilities}`);
+  assert.equal(tools(review), `read,bash,grep,find,ls,${capabilities}`);
+  for (const args of [worktree, inPlace, review]) {
+    assert.ok(args.includes("--no-extensions"));
+    assert.equal(extensions(args).length, 4);
+    assert.ok(extensions(args).some((path) => path.endsWith("pi-web-access/index.ts")));
+    assert.ok(extensions(args).some((path) => path.endsWith("pi-agent-browser-native/dist/extensions/agent-browser/index.js")));
+  }
+  assert.equal(readFileSync(join(root, "pi-path.txt"), "utf8").split(delimiter)[0], resolve(import.meta.dirname, "../node_modules/.bin"));
 });
 
 test("run edits a non-git project in place and discard preserves its files", () => {

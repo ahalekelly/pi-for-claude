@@ -64,6 +64,7 @@
   "pi-exited-before-settled": "pi exited before agent_settled ($code)",
   "pi-model-error-no-message": "Pi reported a model error without a message",
   "pi-settled-without-result": "Pi settled without an assistant result",
+  "path-required": "PATH environment variable is required",
   "plan-file-missing": "Plan file does not exist: $path",
   "plan-file-required": "A plan file is required",
   "plan-name-not-portable": "Plan name '$name' must be a portable session id using lowercase letters, numbers, and hyphens",

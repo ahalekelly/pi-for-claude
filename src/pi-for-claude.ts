@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -40,6 +40,9 @@ type Flags = {
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
 const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
+const webAccessPackage = dirname(fileURLToPath(import.meta.resolve("pi-web-access/package.json")));
+const browserPackage = dirname(fileURLToPath(import.meta.resolve("pi-agent-browser-native/package.json")));
+const agentBrowserPackage = dirname(fileURLToPath(import.meta.resolve("agent-browser/package.json")));
 
 function fail(message: string): never {
   throw new Error(message);
@@ -264,15 +267,22 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     "--no-extensions",
     "--extension", join(home, "extensions", "sandbox", "index.ts"),
     "--extension", join(home, "extensions", "consult.ts"),
+    "--extension", join(webAccessPackage, "index.ts"),
+    "--extension", join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
   ];
-  const tools = command.sandbox === "read-only" ? "read,bash,grep,find,ls" : "read,bash,write,edit,grep,find,ls";
-  args.push("--tools", tools);
+  const projectTools = command.sandbox === "read-only"
+    ? ["read", "bash", "grep", "find", "ls"]
+    : ["read", "bash", "write", "edit", "grep", "find", "ls"];
+  const capabilityTools = ["web_search", "fetch_content", "get_search_content", "agent_browser"];
+  args.push("--tools", [...projectTools, ...capabilityTools].join(","));
 
   // Sessions resumed while a rebase is in progress legitimately hand
   // back an unfinished rebase; everything else must settle cleanly mergeable.
   const checkHandback =
     session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);
 
+  const executablePath = process.env.PATH;
+  if (!executablePath) fail(msg("path-required"));
   const child = spawn(piBin, args, {
     cwd: session.worktree,
     env: {
@@ -280,6 +290,7 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
       PI_FOR_CLAUDE_SANDBOX_MODE: command.sandbox,
       PI_FOR_CLAUDE_SESSION_DIR: sessions,
       PI_FOR_CLAUDE_SESSION_ID: session.id,
+      PATH: `${join(dirname(agentBrowserPackage), ".bin")}${delimiter}${executablePath}`,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
