@@ -78,7 +78,7 @@ pi-for-claude resume fix-auth "Handle the failing edge-case test."
 
 In a non-git project, the directory you run the commands in identifies the project and its sessions.
 
-## Run Pi in an isolated worktree
+## Running in an isolated worktree
 
 Use `implement-in-worktree` when you want to keep Pi's changes out of your current checkout or run several agents in parallel:
 
