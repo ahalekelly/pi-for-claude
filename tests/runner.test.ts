@@ -92,7 +92,6 @@ function scratchRepo(prefix: string): string {
 function makePiForClaudeHome(root: string): string {
   const piForClaudeHome = join(root, "pi-for-claude-home");
   mkdirSync(join(piForClaudeHome, "prompts"), { recursive: true });
-  cpSync(join(import.meta.dirname, "../extensions"), join(piForClaudeHome, "extensions"), { recursive: true });
   cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(piForClaudeHome, "prompts/strings.json"));
   cpSync(
     join(import.meta.dirname, "../prompts/pi-for-claude-instructions.md"),
@@ -458,7 +457,7 @@ test("SDK sessions expose the sandboxed tool allowlist in every mode", (t) => {
 
   const toolNames = (request: Record<string, unknown>) => (request.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name);
   const [worktree, inPlace, review] = modelRequests(model.requestsPath).map(toolNames);
-  const writeTools = ["read", "bash", "write", "edit", "grep", "find", "ls", "web_search", "fetch_content", "get_search_content", "agent_browser"];
+  const writeTools = ["read", "bash", "write", "edit", "grep", "find", "ls", "consult_orchestrator", "web_search", "fetch_content", "get_search_content", "agent_browser"];
   assert.deepEqual(worktree, writeTools);
   assert.deepEqual(inPlace, writeTools);
   assert.deepEqual(review, writeTools.filter((name) => name !== "write" && name !== "edit"));

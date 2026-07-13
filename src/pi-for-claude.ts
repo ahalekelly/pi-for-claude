@@ -45,6 +45,10 @@ type Flags = {
 };
 
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
+// Extensions are package code, not configuration: they import from src/ and
+// node_modules relative to their real location, so they always load from the
+// package itself even when PI_FOR_CLAUDE_HOME points prompts elsewhere.
+const packageExtensions = join(dirname(import.meta.dirname), "extensions");
 const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
 const webAccessPackage = dirname(fileURLToPath(import.meta.resolve("pi-web-access/package.json")));
@@ -295,8 +299,8 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
     settingsManager,
     noExtensions: true,
     additionalExtensionPaths: [
-      join(home, "extensions", "sandbox", "index.ts"),
-      join(home, "extensions", "consult.ts"),
+      join(packageExtensions, "sandbox", "index.ts"),
+      join(packageExtensions, "consult.ts"),
       join(webAccessPackage, "index.ts"),
       join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
     ],
@@ -309,8 +313,8 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
   const projectTools = command.sandbox === "read-only"
     ? ["read", "bash", "grep", "find", "ls"]
     : ["read", "bash", "write", "edit", "grep", "find", "ls"];
-  const capabilityTools = ["web_search", "fetch_content", "get_search_content", "agent_browser"];
-  const { session: agentSession } = await createAgentSession({
+  const capabilityTools = ["consult_orchestrator", "web_search", "fetch_content", "get_search_content", "agent_browser"];
+  const { session: agentSession, extensionsResult } = await createAgentSession({
     cwd: session.worktree,
     model,
     thinkingLevel: thinking as (typeof thinkingLevels)[number],
@@ -321,6 +325,11 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
     settingsManager,
     tools: [...projectTools, ...capabilityTools],
   });
+  const extensionError = extensionsResult.errors[0];
+  if (extensionError) {
+    agentSession.dispose();
+    fail(msg("extension-load-failed", { path: extensionError.path, error: extensionError.error }));
+  }
   await agentSession.bindExtensions({ mode: "print" });
 
   let abortRequested = false;
