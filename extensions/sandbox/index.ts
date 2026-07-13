@@ -92,9 +92,19 @@ function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
 }
 
 function sandboxedBash(): BashOperations {
-  const environment = process.platform === "darwin"
+  const base: NodeJS.ProcessEnv = process.platform === "darwin"
     ? { ...process.env, PATH: process.env.PI_FOR_CLAUDE_SYSTEM_PATH }
-    : process.env;
+    : { ...process.env };
+  // Commit signing cannot work in the sandbox — the user's signing key is
+  // unreadable by design, and pi signing as the user would be dishonest
+  // anyway. Without this, a global commit.gpgsign=true fails every commit
+  // with "could not create temporary file: Operation not permitted".
+  const environment: NodeJS.ProcessEnv = {
+    ...base,
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "commit.gpgsign",
+    GIT_CONFIG_VALUE_0: "false",
+  };
   if (!environment.PATH) throw new Error(msg("path-required"));
 
   return {
