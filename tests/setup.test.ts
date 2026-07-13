@@ -32,7 +32,10 @@ function expectedSettings(agentDir: string) {
   const realAgentDir = realpathSync(agentDir);
   const auth = join(realAgentDir, "auth.json");
   return {
-    sandbox: { filesystem: { allowWrite: [auth, join(realAgentDir, "auth.json.lock")], allowRead: [auth] } },
+    sandbox: {
+      filesystem: { allowWrite: [auth, join(realAgentDir, "auth.json.lock")], allowRead: [auth] },
+      network: { allowLocalBinding: true },
+    },
     permissions: { deny: [`Read(${auth})`] },
   };
 }
@@ -75,6 +78,7 @@ test("setup preserves existing settings and appends only missing lines with thei
   const settings = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
   assert.equal(settings.theme, "dark");
   assert.deepEqual(settings.sandbox.filesystem.allowWrite, ["existing", ...expectedSettings(agentDir).sandbox.filesystem.allowWrite]);
+  assert.equal(settings.sandbox.network.allowLocalBinding, true);
   assert.match(readFileSync(join(home, ".claude", "CLAUDE.md"), "utf8"), /^# Global\r\n@.+\r\n$/);
   assert.equal(readFileSync(join(home, ".config", "git", "ignore"), "utf8"), `.agents/sessions/\r\nlocal-only\r\n.agents/plans/\r\n.agents/worktrees/\r\n`);
 });

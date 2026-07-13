@@ -19,13 +19,13 @@
   },
   "files": [
     "dist",
-    "extensions",
     "models.json",
     "prompts",
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && npm run copy-build-assets",
+    "copy-build-assets": "node -e \"const fs=require('node:fs');fs.mkdirSync('dist/extensions/sandbox',{recursive:true});fs.copyFileSync('src/extensions/sandbox/sandbox.json','dist/extensions/sandbox/sandbox.json')\"",
     "prepare": "npm run build && npm run update-instructions",
     "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts",
     "update-instructions": "node dist/update-instructions.js",

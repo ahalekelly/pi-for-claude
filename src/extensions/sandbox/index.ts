@@ -10,14 +10,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { SandboxManager, type SandboxRuntimeConfig } from "@sysid/sandbox-runtime-improved";
 
-import { agentPaths } from "../../src/agent-paths.ts";
-import { renderString } from "../../src/core.ts";
+import { agentPaths } from "../../agent-paths.ts";
+import { renderString } from "../../core.ts";
 import { usesRm } from "./command-guard.ts";
 import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.ts";
 
 type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
 
-const stringsPath = join(import.meta.dirname, "../..", "prompts", "strings.json");
+const stringsPath = join(import.meta.dirname, "../../..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
 }

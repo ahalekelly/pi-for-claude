@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { createServer as createNetServer } from "node:net";
-import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { createConnection, createServer as createNetServer } from "node:net";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -707,7 +707,54 @@ test("failures before and during a run fail fast without burning the session id"
   assert.match(provider.stderr, /The usage limit has been reached/);
 });
 
-test("a live control socket blocks a new run; a stale one is cleaned up", async (t) => {
+test("steer, queue, and interrupt authenticate over the control port", async (t) => {
+  const root = scratchRepo("pi-for-claude-control-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(fixedSessionPath(sessions, "controlled"), JSON.stringify({
+    kind: "in-place",
+    id: "controlled",
+    command: "run",
+    mainCheckout: root,
+    worktree: root,
+    createdAt,
+  }));
+  const requests: unknown[] = [];
+  const server = createNetServer((socket) => {
+    let input = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      input += chunk;
+      const newline = input.indexOf("\n");
+      if (newline === -1) return;
+      requests.push(JSON.parse(input.slice(0, newline)));
+      socket.end('{"success":true}\n');
+    });
+  });
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  t.after(() => server.close());
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const token = "a".repeat(64);
+  writeFileSync(join(sessions, "controlled.ctl"), JSON.stringify({ port: address.port, token }));
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const runControl = (...args: string[]) => new Promise<void>((resolveRun, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], { cwd: root, stdio: "ignore" });
+    child.once("error", reject);
+    child.once("exit", (code) => code === 0 ? resolveRun() : reject(new Error(`${args[0]} exited ${code}`)));
+  });
+
+  await runControl("steer", "controlled", "redirect");
+  await runControl("queue", "controlled", "then verify");
+  await runControl("interrupt", "controlled");
+  assert.deepEqual(requests, [
+    { type: "steer", message: "redirect", token },
+    { type: "follow_up", message: "then verify", token },
+    { type: "abort", token },
+  ]);
+});
+
+test("a live control port blocks a new run; a stale one is cleaned up", async (t) => {
   const root = scratchRepo("pi-for-claude-guard-");
   const piForClaudeHome = makePiForClaudeHome(root);
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
@@ -720,20 +767,66 @@ test("a live control socket blocks a new run; a stale one is cleaned up", async 
 
   writeFileSync(join(root, "live.md"), "Do the thing.\n");
   const server = createNetServer();
-  await new Promise<void>((resolveListen) => server.listen(join(sessions, "live.ctl"), resolveListen));
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  writeFileSync(join(sessions, "live.ctl"), JSON.stringify({ port: address.port, token: "a".repeat(64) }));
   try {
     const blocked = run("live.md");
     assert.equal(blocked.status, 1);
     assert.match(blocked.stderr, /Session 'live' is currently running/);
   } finally {
-    server.close();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
   }
 
   writeFileSync(join(root, "stale.md"), "Do the thing.\n");
-  writeFileSync(join(sessions, "stale.ctl"), "");
+  writeFileSync(join(sessions, "stale.ctl"), JSON.stringify({ port: address.port, token: "b".repeat(64) }));
   const proceeded = run("stale.md");
   assert.equal(proceeded.status, 0, proceeded.stderr);
-  assert.match(proceeded.stdout, /Done\./, "the stale socket must be removed so the run reaches the model");
+  assert.match(proceeded.stdout, /Done\./, "the stale port must be removed so the run reaches the model");
+
+  writeFileSync(join(root, "malformed.md"), "Do the thing.\n");
+  writeFileSync(join(sessions, "malformed.ctl"), "not json");
+  const malformed = run("malformed.md");
+  assert.equal(malformed.status, 0, malformed.stderr);
+  assert.match(malformed.stdout, /Done\./, "an unparseable control file must be treated as stale");
+});
+
+test("a wrong control token is refused without steering the session", async (t) => {
+  const root = scratchRepo("pi-for-claude-control-token-");
+  const plan = join(root, "token.md");
+  const sessions = join(root, ".agents/sessions");
+  writeFileSync(plan, "Do the thing.\n");
+  const model = startModelServer(root, [{ kind: "text", text: "Done.", delayMs: 500 }]);
+  t.after(model.stop);
+  const child = spawn(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "run", plan], {
+    cwd: root,
+    env: { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => child.kill());
+
+  const controlPath = join(sessions, "token.ctl");
+  const deadline = Date.now() + 10000;
+  while (!existsSync(controlPath)) {
+    if (Date.now() > deadline) assert.fail("timed out waiting for control file");
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  const location = JSON.parse(readFileSync(controlPath, "utf8")) as { port: number; token: string };
+  assert.match(location.token, /^[0-9a-f]{64}$/);
+  if (process.platform !== "win32") assert.equal(statSync(controlPath).mode & 0o777, 0o600);
+  const response = await new Promise<string>((resolveResponse, reject) => {
+    const socket = createConnection({ host: "127.0.0.1", port: location.port });
+    socket.setEncoding("utf8");
+    socket.once("error", reject);
+    socket.once("data", resolveResponse);
+    socket.write(`${JSON.stringify({ type: "steer", message: "Do something else", token: "0".repeat(64) })}\n`);
+  });
+  assert.deepEqual(JSON.parse(response), { success: false, error: "Invalid control token" });
+
+  const exit = await new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
+  assert.equal(exit, 0);
+  assert.equal(modelRequests(model.requestsPath).length, 1, "the refused request must not reach the model");
 });
 
 test("an unclean handback bounces back to pi until it merges cleanly", (t) => {

@@ -1,22 +1,16 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  AuthStorage,
-  createAgentSession,
-  DefaultResourceLoader,
-  getAgentDir,
-  ModelRegistry,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+import type { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
-import { agentPaths } from "./agent-paths.ts";
+import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, isGitRepository, mainCheckout, sessionIdFromPlan } from "./runner.ts";
@@ -47,15 +41,12 @@ type Flags = {
 };
 
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
-// Extensions are package code, not configuration: they import from src/ and
-// node_modules relative to their real location, so they always load from the
-// package itself even when PI_FOR_CLAUDE_HOME points prompts elsewhere.
-const packageExtensions = join(dirname(import.meta.dirname), "extensions");
-const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
-const webAccessPackage = dirname(fileURLToPath(import.meta.resolve("pi-web-access/package.json")));
-const browserPackage = dirname(fileURLToPath(import.meta.resolve("pi-agent-browser-native/package.json")));
-const agentBrowserPackage = dirname(fileURLToPath(import.meta.resolve("agent-browser/package.json")));
+// This resolves to TypeScript beside src/pi-for-claude.ts and compiled JavaScript
+// beside dist/pi-for-claude.js.
+const packageExtensions = join(import.meta.dirname, "extensions");
+
+type PiSdk = typeof import("@earendil-works/pi-coding-agent");
+type ControlFile = { port: number; token: string };
 
 function fail(message: string): never {
   throw new Error(message);
@@ -264,17 +255,42 @@ function handbackBlocker(worktree: string): string {
   return "";
 }
 
-async function sdkRun(session: Session, sessions: string, command: PromptCommand, prompt: string, modelName: string, thinking: string): Promise<string> {
+function readControlFile(path: string): ControlFile {
+  const value = record(JSON.parse(readFileSync(path, "utf8")), "Control file");
+  if (!Number.isInteger(value.port) || (value.port as number) < 1 || (value.port as number) > 65535) fail(msg("malformed-control-file", { path }));
+  if (typeof value.token !== "string" || !/^[0-9a-f]{64}$/.test(value.token)) fail(msg("malformed-control-file", { path }));
+  return { port: value.port as number, token: value.token };
+}
+
+async function controlPortIsLive(path: string): Promise<boolean> {
+  let location: ControlFile;
+  try {
+    location = readControlFile(path);
+  } catch {
+    return false;
+  }
+  return new Promise((resolveProbe) => {
+    const probe = createConnection({ host: "127.0.0.1", port: location.port });
+    probe.once("connect", () => { probe.destroy(); resolveProbe(true); });
+    probe.once("error", () => { probe.destroy(); resolveProbe(false); });
+  });
+}
+
+async function sdkRun(
+  sdk: PiSdk,
+  authStorage: AuthStorage,
+  modelRegistry: ModelRegistry,
+  session: Session,
+  sessions: string,
+  command: PromptCommand,
+  prompt: string,
+  modelName: string,
+  thinking: string,
+): Promise<string> {
   const control = join(sessions, `${session.id}.ctl`);
-  if (Buffer.byteLength(control) > 103) fail(msg("control-socket-too-long", { path: control }));
   if (existsSync(control)) {
-    const live = await new Promise<boolean>((resolveProbe) => {
-      const probe = createConnection(control);
-      probe.once("connect", () => { probe.destroy(); resolveProbe(true); });
-      probe.once("error", () => { probe.destroy(); resolveProbe(false); });
-    });
-    if (live) fail(msg("session-currently-running", { id: session.id }));
-    rmSync(control); // stale socket left by a crashed run
+    if (await controlPortIsLive(control)) fail(msg("session-currently-running", { id: session.id }));
+    rmSync(control);
   }
 
   const executablePath = process.env.PATH;
@@ -284,25 +300,27 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
   process.env.PI_FOR_CLAUDE_SESSION_DIR = sessions;
   process.env.PI_FOR_CLAUDE_SESSION_ID = session.id;
   process.env.PI_FOR_CLAUDE_SYSTEM_PATH = executablePath;
+  const agentBrowserPackage = dirname(fileURLToPath(import.meta.resolve("agent-browser/package.json")));
   process.env.PATH = `${join(dirname(agentBrowserPackage), ".bin")}${delimiter}${executablePath}`;
 
-  const agentDir = getAgentDir();
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
-  const settingsManager = locklessSettings(session.worktree, agentDir);
+  const configuredAgentDir = agentDir();
+  const settingsManager = locklessSettings(sdk.SettingsManager, session.worktree, configuredAgentDir, true);
   const separator = modelName.indexOf("/");
   if (separator === -1) fail(msg("unknown-model", { model: modelName }));
   const model = modelRegistry.find(modelName.slice(0, separator), modelName.slice(separator + 1));
   if (!model) fail(msg("unknown-model", { model: modelName }));
 
-  const resourceLoader = new DefaultResourceLoader({
+  const webAccessPackage = dirname(fileURLToPath(import.meta.resolve("pi-web-access/package.json")));
+  const browserPackage = dirname(fileURLToPath(import.meta.resolve("pi-agent-browser-native/package.json")));
+  const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
+  const resourceLoader = new sdk.DefaultResourceLoader({
     cwd: session.worktree,
-    agentDir,
+    agentDir: configuredAgentDir,
     settingsManager,
     noExtensions: true,
     additionalExtensionPaths: [
-      join(packageExtensions, "sandbox", "index.ts"),
-      join(packageExtensions, "consult.ts"),
+      join(packageExtensions, "sandbox", `index.${extension}`),
+      join(packageExtensions, `consult.${extension}`),
       join(webAccessPackage, "index.ts"),
       join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
     ],
@@ -310,13 +328,13 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
   await resourceLoader.reload();
 
   const sessionManager = piSessionFiles(sessions, session.id).length === 0
-    ? SessionManager.create(session.worktree, sessions, { id: session.id })
-    : SessionManager.open(piSessionPath(sessions, session.id), sessions, session.worktree);
+    ? sdk.SessionManager.create(session.worktree, sessions, { id: session.id })
+    : sdk.SessionManager.open(piSessionPath(sessions, session.id), sessions, session.worktree);
   const projectTools = command.sandbox === "read-only"
     ? ["read", "bash", "grep", "find", "ls"]
     : ["read", "bash", "write", "edit", "grep", "find", "ls"];
   const capabilityTools = ["consult_orchestrator", "web_search", "fetch_content", "get_search_content", "agent_browser"];
-  const { session: agentSession, extensionsResult } = await createAgentSession({
+  const { session: agentSession, extensionsResult } = await sdk.createAgentSession({
     cwd: session.worktree,
     model,
     thinkingLevel: thinking as (typeof thinkingLevels)[number],
@@ -349,6 +367,7 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
     if (text) result = text;
   });
 
+  const token = randomBytes(32).toString("hex");
   const server = createServer((socket) => {
     let input = "";
     socket.setEncoding("utf8");
@@ -359,6 +378,7 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
       void (async () => {
         try {
           const request = record(JSON.parse(input.slice(0, newline)), "Control request");
+          if (request.token !== token) fail(msg("invalid-control-token"));
           if (request.type !== "steer" && request.type !== "follow_up" && request.type !== "abort") fail(msg("unknown-control-request", { type: String(request.type) }));
           if (request.type !== "abort" && typeof request.message !== "string") fail(msg("requires-a-message", { name: request.type }));
           if (request.type === "abort" && request.message !== undefined) fail(msg("abort-no-message"));
@@ -377,8 +397,11 @@ async function sdkRun(session: Session, sessions: string, command: PromptCommand
   });
   await new Promise<void>((resolveListen, reject) => {
     server.once("error", reject);
-    server.listen(control, resolveListen);
+    server.listen(0, "127.0.0.1", resolveListen);
   });
+  const address = server.address();
+  if (!address || typeof address === "string") fail(msg("control-server-address"));
+  writeFileSync(control, `${JSON.stringify({ port: address.port, token })}\n`, { mode: 0o600 });
 
   const question = join(sessions, `${session.id}.question.md`);
   const stallMs = 5 * 60 * 1000;
@@ -477,6 +500,23 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
   return input.filter(Boolean).join("\n\n");
 }
 
+async function preflightControlBinding(): Promise<void> {
+  const server = createServer();
+  try {
+    await new Promise<void>((resolveListen, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolveListen);
+    });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")) {
+      fail(msg("control-bind-preflight-failed"));
+    }
+    throw error;
+  } finally {
+    if (server.listening) await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  }
+}
+
 function preflightAuthWrite(): void {
   const paths = agentPaths();
   try {
@@ -493,11 +533,15 @@ function preflightAuthWrite(): void {
 
 async function runPrompt(name: string, project: string, values: string[]): Promise<void> {
   const command = parsePrompt(readFileSync(commandFile(name), "utf8"));
+  await preflightControlBinding();
   preflightAuthWrite();
+  const sdk = await import("@earendil-works/pi-coding-agent");
+  refreshInstructions(sdk.SettingsManager, home, project);
   const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
-  const registry = ModelRegistry.create(AuthStorage.create());
+  const authStorage = sdk.AuthStorage.create();
+  const registry = sdk.ModelRegistry.create(authStorage);
   const registeredModels = registry.getAll().map(({ provider, id }) => `${provider}/${id}`);
   const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models, registeredModels);
   for (const path of [...flags.prepend, ...flags.append]) {
@@ -575,7 +619,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   }
 
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
-  const result = await sdkRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
+  const result = await sdkRun(sdk, authStorage, registry, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   for (const entry of command.output) {
     switch (entry.kind) {
       case "pi":
@@ -609,19 +653,26 @@ function control(project: string, id: string, type: "steer" | "follow_up" | "abo
   readSession(sessions, id);
   const path = join(sessions, `${id}.ctl`);
   if (!existsSync(path)) fail(msg("session-not-currently-running", { id }));
+  const location = readControlFile(path);
   return new Promise((resolveControl, reject) => {
-    const socket = createConnection(path);
+    const socket = createConnection({ host: "127.0.0.1", port: location.port });
+    let input = "";
+    socket.setEncoding("utf8");
     socket.once("error", reject);
-    socket.once("data", (data) => {
-      const response = record(JSON.parse(data.toString()), "Control response");
+    socket.on("data", (data) => {
+      input += data;
+      const newline = input.indexOf("\n");
+      if (newline === -1) return;
+      const response = record(JSON.parse(input.slice(0, newline)), "Control response");
       if (typeof response.success !== "boolean") fail(msg("success-must-be-boolean", { context: "Control response" }));
       if (!response.success) {
         if (typeof response.error !== "string") fail(msg("failed-response-no-error", { context: "control" }));
         reject(new Error(response.error));
-      }
-      else resolveControl();
+      } else resolveControl();
+      socket.destroy();
     });
-    socket.write(`${JSON.stringify(message ? { type, message } : { type })}\n`);
+    const request = message ? { type, message, token: location.token } : { type, token: location.token };
+    socket.write(`${JSON.stringify(request)}\n`);
   });
 }
 
@@ -641,6 +692,8 @@ function listSessions(project: string): void {
 }
 
 function exportSession(source: string, output: string): void {
+  const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+  const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
   const exported = spawnSync(piBin, ["--export", source, output], { encoding: "utf8" });
   if (exported.error) fail(msg("could-not-run", { command: piBin, error: exported.error.message }));
   if (exported.status !== 0) fail(exported.stderr.trim() || msg("command-failed", { command: `${piBin} --export` }));
@@ -793,7 +846,6 @@ function help(): void {
 async function main(argv: string[]): Promise<void> {
   const [name, ...values] = argv;
   if (name === "setup") return setup(home);
-  refreshInstructions(home, process.cwd());
   if (!name || name === "help") return help();
   const project = process.cwd();
   if (name === "sessions") return listSessions(project);

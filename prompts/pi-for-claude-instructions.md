@@ -10,7 +10,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
    Plan length should be proportional to the task; 1/2th as many tokens as the expected diff is a rough prior.
 
-2. Launch the run in a persistent Monitor. Monitor runs outside the Bash sandbox, which gives pi provider access and lets pi-for-claude create its local control socket:
+2. Launch the run in a plain persistent Monitor. The sandbox permits provider traffic, and `pi-for-claude setup` grants the authentication-file writes and loopback binding used by the session:
 
    ```js
    Monitor({ command: "pi-for-claude implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })

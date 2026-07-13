@@ -27,7 +27,7 @@ Install from GitHub:
 npm install --global github:ahalekelly/pi-for-claude
 ```
 
-Configure Claude Code's sandbox, global instructions, and global git ignore:
+Configure Claude Code's sandbox to permit Pi's authentication writes and loopback control channel, and install the global instructions and git ignore:
 
 ```sh
 pi-for-claude setup
@@ -175,7 +175,7 @@ Each prompt chooses one sandbox:
 - `worktree-write` can edit and commit only inside its session worktree
 - `read-only` cannot edit the project
 
-All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. The Pi agent runtime retains access to its model provider.
+All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. `pi-for-claude setup` grants the wrapper access to Pi's authentication files and local control-channel binding. The Pi agent runtime retains access to its model provider.
 
 The bundled web and browser tools make network requests directly from the agent runtime, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
 

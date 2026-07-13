@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { renderString } from "../src/core.ts";
+import { renderString } from "../core.ts";
 
 const timeoutMs = 10 * 60 * 1000;
-const stringsPath = join(import.meta.dirname, "..", "prompts", "strings.json");
+const stringsPath = join(import.meta.dirname, "..", "..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
 }

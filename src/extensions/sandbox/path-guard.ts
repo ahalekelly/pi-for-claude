@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
-import { renderString } from "../../src/core.ts";
+import { renderString } from "../../core.ts";
 
 export type FilesystemPolicy = {
   denyRead: string[];
@@ -11,7 +11,7 @@ export type FilesystemPolicy = {
   gitWrite: string[];
 };
 
-const stringsPath = join(import.meta.dirname, "../..", "prompts", "strings.json");
+const stringsPath = join(import.meta.dirname, "../../..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string>): string {
   return renderString(stringsPath, name, injections);
 }

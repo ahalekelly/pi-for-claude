@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
+
 import { locklessSettings, renderScopedModels } from "../src/instructions.ts";
 
 test("renderScopedModels inserts and replaces Pi's saved model scope", () => {
@@ -30,7 +32,7 @@ test("locklessSettings reads global and project settings without filesystem writ
   writeFileSync(join(projectSettings, "settings.json"), JSON.stringify({ retry: { enabled: false } }));
   const before = readdirSync(agentDir);
 
-  const settings = locklessSettings(root, agentDir);
+  const settings = locklessSettings(SettingsManager, root, agentDir, true);
 
   assert.equal(settings.getRetryEnabled(), false);
   assert.equal(settings.getFollowUpMode(), "one-at-a-time");

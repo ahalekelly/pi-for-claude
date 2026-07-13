@@ -74,6 +74,7 @@ export function setup(home: string): void {
 
   const sandbox = ensureObject(settings, "sandbox", "sandbox", home);
   const filesystem = ensureObject(sandbox, "filesystem", "sandbox.filesystem", home);
+  const network = ensureObject(sandbox, "network", "sandbox.network", home);
   const permissions = ensureObject(settings, "permissions", "permissions", home);
   const allowWrite = ensureStrings(filesystem, "allowWrite", "sandbox.filesystem.allowWrite", home);
   const allowRead = ensureStrings(filesystem, "allowRead", "sandbox.filesystem.allowRead", home);
@@ -85,6 +86,10 @@ export function setup(home: string): void {
     ...[paths.auth, paths.realAuth].map((path) => [deny, `Read(${path})`] as [string[], string]),
   ] as Array<[string[], string]>;
   let settingsChanged = !existsSync(settingsPath);
+  if (network.allowLocalBinding !== true) {
+    network.allowLocalBinding = true;
+    settingsChanged = true;
+  }
   for (const [entries, entry] of wanted) {
     if (entries.includes(entry)) continue;
     entries.push(entry);

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { usesRm } from "../extensions/sandbox/command-guard.ts";
-import { readBlocked, writeBlocked } from "../extensions/sandbox/path-guard.ts";
+import { usesRm } from "../src/extensions/sandbox/command-guard.ts";
+import { readBlocked, writeBlocked } from "../src/extensions/sandbox/path-guard.ts";
 
 const config = {
   denyRead: ["~/.agents/secrets.env", "~/.ssh"],
