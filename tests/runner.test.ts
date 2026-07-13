@@ -282,6 +282,18 @@ test("help ignores Markdown documentation in the prompts directory", () => {
   assert.match(output, /implement-in-worktree <plan-file>/);
 });
 
+test("a proxied environment re-execs with NODE_USE_ENV_PROXY and still works", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-proxy-"));
+  const piForClaudeHome = makePiForClaudeHome(root);
+
+  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "help"], {
+    cwd: root,
+    env: { ...process.env, PI_FOR_CLAUDE_HOME: piForClaudeHome, HTTPS_PROXY: "http://127.0.0.1:1", NODE_USE_ENV_PROXY: "" },
+    encoding: "utf8",
+  });
+  assert.match(output, /implement-in-worktree <plan-file>/);
+});
+
 test("run creates an isolated worktree and sends the composed prompt through the SDK", (t) => {
   const root = scratchRepo("pi-for-claude-e2e-");
   writeFileSync(join(root, "fix-auth.md"), "Fix the auth flow.\n");
