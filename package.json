@@ -27,7 +27,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build && npm run update-instructions",
-    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts",
+    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts",
     "update-instructions": "node dist/update-instructions.js",
     "typecheck": "tsc --noEmit"
   },

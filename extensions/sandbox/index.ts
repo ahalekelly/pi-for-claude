@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { SandboxManager, type SandboxRuntimeConfig } from "@sysid/sandbox-runtime-improved";
 
+import { agentPaths } from "../../src/agent-paths.ts";
 import { renderString } from "../../src/core.ts";
 import { usesRm } from "./command-guard.ts";
 import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.ts";
@@ -150,8 +151,10 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   const readOnly = mode === "read-only";
   const policy = loadPolicy(readOnly);
   const gitPaths = mode === "worktree-write" ? gitPolicyPaths(cwd) : { allow: [], deny: [] };
+  const auth = agentPaths().realAuth;
+  policy.filesystem.denyRead.push(auth);
   policy.filesystem.allowWrite.push(...gitPaths.allow);
-  policy.filesystem.denyWrite.push(...gitPaths.deny);
+  policy.filesystem.denyWrite.push(auth, ...gitPaths.deny);
   const guardPolicy: FilesystemPolicy = { ...policy.filesystem, gitWrite: gitPaths.allow };
   let state: "starting" | "ready" | "failed" = "starting";
 

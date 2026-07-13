@@ -27,19 +27,13 @@ Install from GitHub:
 npm install --global github:ahalekelly/pi-for-claude
 ```
 
-Log in to your model providers of choice on Pi.
-
-Add the instructions to Claude Code's global `CLAUDE.md`:
+Configure Claude Code's sandbox, global instructions, and global git ignore:
 
 ```sh
-l="@$(npm root -g)/pi-for-claude/prompts/pi-for-claude-instructions.md"; grep -qxF "$l" ~/.claude/CLAUDE.md || echo "$l" >> ~/.claude/CLAUDE.md
+pi-for-claude setup
 ```
 
-Ignore pi-for-claude's project files globally:
-
-```sh
-printf '%s\n' .agents/sessions/ .agents/plans/ .agents/worktrees/ >> ~/.config/git/ignore
-```
+Then start Pi and log in to your model providers of choice.
 
 Skill files are automatically loaded from the typical Pi locations:
 
@@ -137,6 +131,7 @@ Prompt commands call a model:
 
 Built-in commands do not call a model:
 
+- `setup` — configure the machine for pi-for-claude and check provider login
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the last assistant response
 - `view <session> [--live | --no-open]` — export the conversation to HTML and optionally keep it updated

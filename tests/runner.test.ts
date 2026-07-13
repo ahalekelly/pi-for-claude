@@ -463,6 +463,30 @@ test("SDK sessions expose the sandboxed tool allowlist in every mode", (t) => {
   assert.deepEqual(review, writeTools.filter((name) => name !== "write" && name !== "edit"));
 });
 
+test("sandboxed bash cannot read Pi credentials but can read a project file", (t) => {
+  const root = scratchRepo("pi-for-claude-auth-sandbox-");
+  writeFileSync(join(root, "check.md"), "Check file access.\n");
+  writeFileSync(join(root, "safe.txt"), "PROJECT_FILE_MARKER\n");
+  const model = startModelServer(root, [
+    { kind: "tool", name: "bash", arguments: { command: "cat \"$PI_CODING_AGENT_DIR/auth.json\"" } },
+    { kind: "tool", name: "bash", arguments: { command: "cat safe.txt" } },
+    { kind: "text", text: "Checked access." },
+  ]);
+  t.after(model.stop);
+  writeFileSync(join(model.agentDir, "auth.json"), JSON.stringify({ "unused-provider": { type: "api_key", key: "AUTH_SECRET_MARKER" } }));
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "run", "check.md"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+    timeout: 15000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const requests = modelRequests(model.requestsPath).map((request) => JSON.stringify(request));
+  assert.equal(requests.some((request) => request.includes("AUTH_SECRET_MARKER")), false);
+  assert.match(requests[2]!, /PROJECT_FILE_MARKER/);
+});
+
 test("run edits a non-git project in place and discard preserves its files", (t) => {
   const root = mkdtempSync("/tmp/pi-for-claude-in-place-non-git-");
   writeFileSync(join(root, "change.md"), "Create a file.\n");
@@ -615,6 +639,41 @@ test("implement-in-worktree requires git", () => {
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /requires a git repository; use run for in-place work/);
+});
+
+test("session launch preflight leaves no auth lock behind", () => {
+  const root = scratchRepo("pi-for-claude-preflight-clean-");
+  const agentDir = isolatedAgentDir(root);
+  writeFileSync(join(root, "plan.md"), "Do the thing.\n");
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "implement-in-worktree", "plan.md", "--model", "missing"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown model label/);
+  assert.equal(existsSync(join(agentDir, "auth.json.lock")), false);
+});
+
+test("session launch fails its auth write preflight before creating artifacts", { skip: process.platform === "win32" }, () => {
+  const root = scratchRepo("pi-for-claude-preflight-denied-");
+  const agentDir = isolatedAgentDir(root);
+  writeFileSync(join(root, "plan.md"), "Do the thing.\n");
+  chmodSync(agentDir, 0o555);
+  try {
+    const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "implement-in-worktree", "plan.md"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /auth\.json/);
+    assert.match(result.stderr, /auth\.json\.lock/);
+    assert.match(result.stderr, /pi-for-claude setup/);
+    assert.equal(existsSync(join(root, ".agents")), false);
+  } finally {
+    chmodSync(agentDir, 0o755);
+  }
 });
 
 test("failures before and during a run fail fast without burning the session id", (t) => {

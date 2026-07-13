@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
@@ -16,9 +16,11 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 
+import { agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, isGitRepository, mainCheckout, sessionIdFromPlan } from "./runner.ts";
+import { setup } from "./setup.ts";
 
 type SessionFields = {
   id: string;
@@ -475,8 +477,23 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
   return input.filter(Boolean).join("\n\n");
 }
 
+function preflightAuthWrite(): void {
+  const paths = agentPaths();
+  try {
+    mkdirSync(paths.lock);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") return;
+    if (error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")) {
+      fail(msg("auth-write-preflight-failed", { auth: paths.realAuth, lock: paths.lock }));
+    }
+    throw error;
+  }
+  rmdirSync(paths.lock);
+}
+
 async function runPrompt(name: string, project: string, values: string[]): Promise<void> {
   const command = parsePrompt(readFileSync(commandFile(name), "utf8"));
+  preflightAuthWrite();
   const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
@@ -774,8 +791,9 @@ function help(): void {
 }
 
 async function main(argv: string[]): Promise<void> {
-  refreshInstructions(home, process.cwd());
   const [name, ...values] = argv;
+  if (name === "setup") return setup(home);
+  refreshInstructions(home, process.cwd());
   if (!name || name === "help") return help();
   const project = process.cwd();
   if (name === "sessions") return listSessions(project);
