@@ -180,8 +180,8 @@ Each prompt chooses one sandbox:
 - `worktree-write` can edit and commit only inside its session worktree
 - `read-only` cannot edit the project
 
-All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. The Pi process retains access to its model provider.
+All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. The Pi agent runtime retains access to its model provider.
 
-The bundled web and browser tools make network requests directly from the Pi process, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
+The bundled web and browser tools make network requests directly from the agent runtime, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
 
-Session data lives under `<main>/.agents/sessions`. In git projects, pi-for-claude resolves this through the shared checkout so sessions survive worktree removal.
+Session data lives under `<main>/.agents/sessions`. Each conversation's `.jsonl` file is its durable record. In git projects, pi-for-claude resolves this directory through the shared checkout so sessions survive worktree removal.

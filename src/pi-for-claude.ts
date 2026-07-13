@@ -1,16 +1,23 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import {
+  AuthStorage,
+  createAgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
+  ModelRegistry,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
-import { refreshInstructions } from "./instructions.ts";
+import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, isGitRepository, mainCheckout, sessionIdFromPlan } from "./runner.ts";
 
 type SessionFields = {
@@ -219,8 +226,8 @@ function record(value: unknown, context: string): Record<string, unknown> {
 }
 
 function assistantText(messageValue: unknown): string | undefined {
-  const message = record(messageValue, "RPC message");
-  if (typeof message.role !== "string") fail(msg("role-must-be-string", { context: "RPC message" }));
+  const message = record(messageValue, "Pi message");
+  if (typeof message.role !== "string") fail(msg("role-must-be-string", { context: "Pi message" }));
   if (message.role !== "assistant") return undefined;
   if (!Array.isArray(message.content)) fail(msg("assistant-content-not-array"));
   const text: string[] = [];
@@ -251,8 +258,7 @@ function handbackBlocker(worktree: string): string {
   return "";
 }
 
-async function rpcRun(session: Session, sessions: string, command: PromptCommand, prompt: string, model: string, thinking: string): Promise<string> {
-  const log = join(sessions, `${sessionPrefix(session)}.log`);
+async function sdkRun(session: Session, sessions: string, command: PromptCommand, prompt: string, modelName: string, thinking: string): Promise<string> {
   const control = join(sessions, `${session.id}.ctl`);
   if (Buffer.byteLength(control) > 103) fail(msg("control-socket-too-long", { path: control }));
   if (existsSync(control)) {
@@ -264,76 +270,74 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     if (live) fail(msg("session-currently-running", { id: session.id }));
     rmSync(control); // stale socket left by a crashed run
   }
-  const startedAt = new Date();
-  appendFileSync(log, "");
-  utimesSync(log, startedAt, startedAt);
 
-  const args = [
-    "--mode", "rpc",
-    "--session-id", session.id,
-    "--session-dir", sessions,
-    "--name", session.id,
-    "--model", model,
-    "--thinking", thinking,
-    "--no-extensions",
-    "--extension", join(home, "extensions", "sandbox", "index.ts"),
-    "--extension", join(home, "extensions", "consult.ts"),
-    "--extension", join(webAccessPackage, "index.ts"),
-    "--extension", join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
-  ];
+  const executablePath = process.env.PATH;
+  if (!executablePath) fail(msg("path-required"));
+  process.chdir(session.worktree);
+  process.env.PI_FOR_CLAUDE_SANDBOX_MODE = command.sandbox;
+  process.env.PI_FOR_CLAUDE_SESSION_DIR = sessions;
+  process.env.PI_FOR_CLAUDE_SESSION_ID = session.id;
+  process.env.PI_FOR_CLAUDE_SYSTEM_PATH = executablePath;
+  process.env.PATH = `${join(dirname(agentBrowserPackage), ".bin")}${delimiter}${executablePath}`;
+
+  const agentDir = getAgentDir();
+  const authStorage = AuthStorage.create();
+  const modelRegistry = ModelRegistry.create(authStorage);
+  const settingsManager = locklessSettings(session.worktree, agentDir);
+  const separator = modelName.indexOf("/");
+  if (separator === -1) fail(msg("unknown-model", { model: modelName }));
+  const model = modelRegistry.find(modelName.slice(0, separator), modelName.slice(separator + 1));
+  if (!model) fail(msg("unknown-model", { model: modelName }));
+
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: session.worktree,
+    agentDir,
+    settingsManager,
+    noExtensions: true,
+    additionalExtensionPaths: [
+      join(home, "extensions", "sandbox", "index.ts"),
+      join(home, "extensions", "consult.ts"),
+      join(webAccessPackage, "index.ts"),
+      join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
+    ],
+  });
+  await resourceLoader.reload();
+
+  const sessionManager = piSessionFiles(sessions, session.id).length === 0
+    ? SessionManager.create(session.worktree, sessions, { id: session.id })
+    : SessionManager.open(piSessionPath(sessions, session.id), sessions, session.worktree);
   const projectTools = command.sandbox === "read-only"
     ? ["read", "bash", "grep", "find", "ls"]
     : ["read", "bash", "write", "edit", "grep", "find", "ls"];
   const capabilityTools = ["web_search", "fetch_content", "get_search_content", "agent_browser"];
-  args.push("--tools", [...projectTools, ...capabilityTools].join(","));
-
-  // Sessions resumed while a rebase is in progress legitimately hand
-  // back an unfinished rebase; everything else must settle cleanly mergeable.
-  const checkHandback =
-    session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);
-
-  const executablePath = process.env.PATH;
-  if (!executablePath) fail(msg("path-required"));
-  const child = spawn(piBin, args, {
+  const { session: agentSession } = await createAgentSession({
     cwd: session.worktree,
-    env: {
-      ...process.env,
-      PI_FOR_CLAUDE_SANDBOX_MODE: command.sandbox,
-      PI_FOR_CLAUDE_SESSION_DIR: sessions,
-      PI_FOR_CLAUDE_SESSION_ID: session.id,
-      PI_FOR_CLAUDE_SYSTEM_PATH: executablePath,
-      PATH: `${join(dirname(agentBrowserPackage), ".bin")}${delimiter}${executablePath}`,
-    },
-    stdio: ["pipe", "pipe", "pipe"],
+    model,
+    thinkingLevel: thinking as (typeof thinkingLevels)[number],
+    authStorage,
+    modelRegistry,
+    resourceLoader,
+    sessionManager,
+    settingsManager,
+    tools: [...projectTools, ...capabilityTools],
   });
-  child.stderr.setEncoding("utf8");
-  // Pi warns "No project session found ... creating a new session" whenever
-  // --session-id names a session that doesn't exist yet — which is every new
-  // run, since the runner always passes a deterministic id. The full stderr
-  // still goes to the log; only this known-benign line is kept off the console.
-  let stderrTail = "";
-  child.stderr.on("data", (chunk: string) => {
-    const lastEventAt = statSync(log).mtime;
-    appendFileSync(log, chunk);
-    utimesSync(log, lastEventAt, lastEventAt);
-    stderrTail += chunk;
-    let newline;
-    while ((newline = stderrTail.indexOf("\n")) !== -1) {
-      const line = stderrTail.slice(0, newline + 1);
-      stderrTail = stderrTail.slice(newline + 1);
-      if (!line.includes("creating a new session with that id")) process.stderr.write(line);
+  await agentSession.bindExtensions({ mode: "print" });
+
+  let abortRequested = false;
+  let lastEventAt = Date.now();
+  let result: string | undefined;
+  let modelError: Error | undefined;
+  const unsubscribe = agentSession.subscribe((event) => {
+    lastEventAt = Date.now();
+    if (event.type !== "message_end" || event.message.role !== "assistant") return;
+    if (event.message.stopReason === "error") {
+      modelError = new Error(event.message.errorMessage || msg("pi-model-error-no-message"));
+      return;
     }
+    const text = assistantText(event.message);
+    if (text) result = text;
   });
 
-  let nextId = 1;
-  let abortRequested = false;
-  let corrections = 0;
-  const pending = new Map<string, (response: string) => void>();
-  const send = (value: Record<string, unknown>): string => {
-    const id = `pi-for-claude-${nextId++}`;
-    child.stdin.write(`${JSON.stringify({ id, ...value })}\n`);
-    return id;
-  };
   const server = createServer((socket) => {
     let input = "";
     socket.setEncoding("utf8");
@@ -341,13 +345,23 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
       input += chunk;
       const newline = input.indexOf("\n");
       if (newline === -1) return;
-      const request = record(JSON.parse(input.slice(0, newline)), "Control request");
-      if (request.type !== "steer" && request.type !== "follow_up" && request.type !== "abort") fail(msg("unknown-control-request", { type: String(request.type) }));
-      if (request.type !== "abort" && typeof request.message !== "string") fail(msg("requires-a-message", { name: request.type }));
-      if (request.type === "abort" && request.message !== undefined) fail(msg("abort-no-message"));
-      if (request.type === "abort") abortRequested = true;
-      const id = send(request.message === undefined ? { type: request.type } : { type: request.type, message: request.message });
-      pending.set(id, (response) => socket.end(`${response}\n`));
+      void (async () => {
+        try {
+          const request = record(JSON.parse(input.slice(0, newline)), "Control request");
+          if (request.type !== "steer" && request.type !== "follow_up" && request.type !== "abort") fail(msg("unknown-control-request", { type: String(request.type) }));
+          if (request.type !== "abort" && typeof request.message !== "string") fail(msg("requires-a-message", { name: request.type }));
+          if (request.type === "abort" && request.message !== undefined) fail(msg("abort-no-message"));
+          if (request.type === "steer") await agentSession.steer(request.message as string);
+          if (request.type === "follow_up") await agentSession.followUp(request.message as string);
+          if (request.type === "abort") {
+            abortRequested = true;
+            await agentSession.abort();
+          }
+          socket.end(`${JSON.stringify({ success: true })}\n`);
+        } catch (error) {
+          socket.end(`${JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) })}\n`);
+        }
+      })();
     });
   });
   await new Promise<void>((resolveListen, reject) => {
@@ -355,157 +369,63 @@ async function rpcRun(session: Session, sessions: string, command: PromptCommand
     server.listen(control, resolveListen);
   });
 
-  return await new Promise<string>((resolveRun, reject) => {
-    let buffer = "";
-    const question = join(sessions, `${session.id}.question.md`);
-    const stallMs = 5 * 60 * 1000;
-    let questionAnnounced = false;
-    let warnedIntervals = 0;
-    let state: { kind: "awaiting-result" } | { kind: "has-result"; result: string } | { kind: "settled"; result: string } | { kind: "failed" } = {
-      kind: "awaiting-result",
-    };
-    const monitor = setInterval(() => {
-      if (existsSync(question)) {
-        warnedIntervals = 0;
-        if (questionAnnounced) return;
-        let text: string;
-        try {
-          text = readFileSync(question, "utf8").trim();
-        } catch (error) {
-          if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-          throw error;
-        }
-        process.stdout.write(`${msg("question-from-session", {
-          id: session.id,
-          text,
-          path: join(sessions, `${session.id}.answer.md`),
-        })}\n`);
-        questionAnnounced = true;
-        return;
+  const question = join(sessions, `${session.id}.question.md`);
+  const stallMs = 5 * 60 * 1000;
+  let questionAnnounced = false;
+  let warnedIntervals = 0;
+  const monitor = setInterval(() => {
+    if (existsSync(question)) {
+      warnedIntervals = 0;
+      if (questionAnnounced) return;
+      let text: string;
+      try {
+        text = readFileSync(question, "utf8").trim();
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+        throw error;
       }
-      questionAnnounced = false;
-      if (!existsSync(log)) return;
-      const silentMs = Math.max(0, Date.now() - statSync(log).mtimeMs);
-      const intervals = Math.floor(silentMs / stallMs);
-      if (intervals > warnedIntervals) {
-        process.stdout.write(`${msg("session-stalled", {
-          id: session.id,
-          minutes: String(intervals * 5),
-        })}\n`);
+      process.stdout.write(`${msg("question-from-session", {
+        id: session.id,
+        text,
+        path: join(sessions, `${session.id}.answer.md`),
+      })}\n`);
+      questionAnnounced = true;
+      return;
+    }
+    questionAnnounced = false;
+    const intervals = Math.floor(Math.max(0, Date.now() - lastEventAt) / stallMs);
+    if (intervals > warnedIntervals) {
+      process.stdout.write(`${msg("session-stalled", { id: session.id, minutes: String(intervals * 5) })}\n`);
+    }
+    warnedIntervals = intervals;
+  }, 500);
+
+  try {
+    await agentSession.prompt(prompt, { source: "rpc" });
+    await agentSession.waitForIdle();
+    if (agentSession.pendingMessageCount !== 0) fail(msg("pi-settled-with-pending-messages"));
+    if (modelError) throw modelError;
+
+    const checkHandback = session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);
+    if (result && !abortRequested && checkHandback) {
+      const blocker = handbackBlocker(session.worktree);
+      if (blocker) {
+        await agentSession.prompt(blocker, { source: "rpc" });
+        await agentSession.waitForIdle();
+        if (agentSession.pendingMessageCount !== 0) fail(msg("pi-settled-with-pending-messages"));
+        if (modelError) throw modelError;
       }
-      warnedIntervals = intervals;
-    }, 500);
-    const stop = () => {
-      clearInterval(monitor);
-      server.close();
-      child.stdin.end();
-      child.kill();
-      if (existsSync(control)) rmSync(control);
-    };
-    const failRun = (error: unknown) => {
-      if (state.kind === "failed" || state.kind === "settled") return;
-      state = { kind: "failed" };
-      stop();
-      reject(error);
-    };
-    const finish = () => {
-      switch (state.kind) {
-        case "awaiting-result":
-          if (!abortRequested) {
-            failRun(new Error(msg("pi-settled-without-result")));
-            return;
-          }
-          state = { kind: "settled", result: msg("interrupted") };
-          stop();
-          return;
-        case "has-result":
-          state = { kind: "settled", result: state.result };
-          stop();
-          return;
-        case "failed":
-        case "settled":
-          return;
-        default: {
-          const unknownState: never = state;
-          fail(msg("unknown-rpc-run-state", { state: String(unknownState) }));
-        }
-      }
-    };
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      buffer += chunk;
-      while (buffer.includes("\n")) {
-        const newline = buffer.indexOf("\n");
-        const line = buffer.slice(0, newline).replace(/\r$/, "");
-        buffer = buffer.slice(newline + 1);
-        if (!line) continue;
-        appendFileSync(log, `${line}\n`);
-        try {
-          const event = record(JSON.parse(line), "RPC event");
-          if (typeof event.type !== "string") fail(msg("rpc-event-type-not-string"));
-          if (event.type === "response") {
-            if (typeof event.success !== "boolean") fail(msg("success-must-be-boolean", { context: "RPC response" }));
-            if (event.id !== undefined && typeof event.id !== "string") fail(msg("rpc-response-id-not-string"));
-            if (typeof event.id === "string" && pending.has(event.id)) {
-              pending.get(event.id)!(line);
-              pending.delete(event.id);
-            }
-            if (!event.success) {
-              if (typeof event.error !== "string") fail(msg("failed-response-no-error", { context: "RPC" }));
-              failRun(new Error(event.error));
-            }
-            continue;
-          }
-          if (event.type === "extension_ui_request") {
-            if (typeof event.id !== "string" || typeof event.method !== "string") fail(msg("malformed-extension-ui-request"));
-            child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: event.id, cancelled: true })}\n`);
-            continue;
-          }
-          if (event.type === "message_end") {
-            const message = record(event.message, "RPC message");
-            if (message.stopReason === "error") {
-              failRun(new Error(typeof message.errorMessage === "string" ? message.errorMessage : msg("pi-model-error-no-message")));
-              return;
-            }
-            const text = assistantText(event.message);
-            if (text) state = { kind: "has-result", result: text };
-            continue;
-          }
-          if (event.type === "agent_settled") {
-            // One correction round: bounce the first unclean handback back to
-            // pi; a second one settles anyway and runPrompt reports it to the
-            // orchestrator.
-            if (state.kind === "has-result" && !abortRequested && checkHandback && corrections === 0 && !rebaseInProgress(session.worktree)) {
-              const blocker = handbackBlocker(session.worktree);
-              if (blocker) {
-                corrections = 1;
-                send({ type: "prompt", message: blocker });
-                continue;
-              }
-            }
-            finish();
-            continue;
-          }
-          const informational = new Set([
-            "agent_start", "agent_end", "turn_start", "turn_end", "message_start", "message_update",
-            "tool_execution_start", "tool_execution_update", "tool_execution_end", "queue_update",
-            "compaction_start", "compaction_end", "auto_retry_start", "auto_retry_end", "extension_error",
-          ]);
-          if (!informational.has(event.type)) fail(msg("unknown-rpc-event", { type: event.type }));
-        } catch (error) {
-          failRun(error);
-          return;
-        }
-      }
-    });
-    child.once("error", failRun);
-    child.once("exit", (code) => {
-      if (stderrTail) process.stderr.write(stderrTail);
-      if (state.kind === "settled") resolveRun(state.result);
-      else failRun(new Error(msg("pi-exited-before-settled", { code: String(code ?? "signal") })));
-    });
-    send({ type: "prompt", message: prompt });
-  });
+    }
+    if (result) return result;
+    if (abortRequested) return msg("interrupted");
+    return fail(msg("pi-settled-without-result"));
+  } finally {
+    clearInterval(monitor);
+    unsubscribe();
+    agentSession.dispose();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    if (existsSync(control)) rmSync(control);
+  }
 }
 
 function composePrompt(command: PromptCommand, worktree: string, args: string[], flags: Flags): string {
@@ -551,7 +471,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
-  const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+  const registry = ModelRegistry.create(AuthStorage.create());
   const registeredModels = registry.getAll().map(({ provider, id }) => `${provider}/${id}`);
   const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models, registeredModels);
   for (const path of [...flags.prepend, ...flags.append]) {
@@ -629,7 +549,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   }
 
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
-  const result = await rpcRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
+  const result = await sdkRun(session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   for (const entry of command.output) {
     switch (entry.kind) {
       case "pi":
