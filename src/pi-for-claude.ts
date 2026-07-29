@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, watch, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
@@ -68,6 +68,15 @@ function fail(message: string): never {
 // Model-facing text lives in prompts/strings.json, never inline in code.
 function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(join(home, "prompts", "strings.json"), name, injections);
+}
+
+// One process serves one session, so the active session's log path is module
+// state. emit() mirrors all session output into the log so `watch` can follow
+// a run this process's stdout doesn't reach (e.g. an unsandboxed nohup launch).
+let sessionLog: string | undefined;
+function emit(text: string): void {
+  process.stdout.write(text);
+  if (sessionLog) appendFileSync(sessionLog, text);
 }
 
 function sessionDirs(project: string) {
@@ -220,7 +229,7 @@ function bestEffortInputShell(command: string, cwd: string): string {
   if (result.status === 0) return output;
   const status = result.status === null ? `signal ${result.signal ?? "unknown"}` : `exit ${result.status}`;
   const failure = msg("input-shell-failed", { command, status, output: output || msg("no-command-output") });
-  process.stdout.write(`${failure}\n`);
+  emit(`${failure}\n`);
   return failure;
 }
 
@@ -434,7 +443,7 @@ async function sdkRun(
         if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
         throw error;
       }
-      process.stdout.write(`${msg("question-from-session", {
+      emit(`${msg("question-from-session", {
         id: session.id,
         text,
         path: join(sessions, `${session.id}.answer.md`),
@@ -445,7 +454,7 @@ async function sdkRun(
     questionAnnounced = false;
     const intervals = Math.floor(Math.max(0, Date.now() - lastEventAt) / stallMs);
     if (intervals > warnedIntervals) {
-      process.stdout.write(`${msg("session-stalled", { id: session.id, minutes: String(intervals * 5) })}\n`);
+      emit(`${msg("session-stalled", { id: session.id, minutes: String(intervals * 5) })}\n`);
     }
     warnedIntervals = intervals;
   }, 500);
@@ -633,18 +642,20 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     writeSession(dirs.sessions, session);
   }
 
+  sessionLog = join(dirs.sessions, `${sessionPrefix(session)}.log`);
+  appendFileSync(sessionLog, "");
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
   const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
   for (const entry of command.output) {
     switch (entry.kind) {
       case "pi":
-        process.stdout.write(`${result}\n`);
+        emit(`${result}\n`);
         break;
       case "text":
-        process.stdout.write(entry.text);
+        emit(entry.text);
         break;
       case "shell":
-        process.stdout.write(`${tracedShell(entry.shell, session.worktree)}\n`);
+        emit(`${tracedShell(entry.shell, session.worktree)}\n`);
         break;
       default: {
         const unknownEntry: never = entry;
@@ -655,11 +666,11 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   if (session.kind === "worktree" && command.sandbox === "worktree-write") {
     if (rebaseInProgress(session.worktree)) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
-      process.stdout.write(`\n${msg("handback-rebase-warning", { worktree: session.worktree, conflicts })}\n`);
+      emit(`\n${msg("handback-rebase-warning", { worktree: session.worktree, conflicts })}\n`);
       return;
     }
     const blocker = handbackBlocker(session.worktree);
-    if (blocker) process.stdout.write(`\n${msg("handback-warning", { worktree: session.worktree, problem: blocker })}\n`);
+    if (blocker) emit(`\n${msg("handback-warning", { worktree: session.worktree, problem: blocker })}\n`);
   }
 }
 
@@ -858,12 +869,47 @@ function help(): void {
   process.stdout.write(msg("help-builtins"));
 }
 
+// The runner removes the control file before printing its final output, so
+// after it disappears the log may still be growing; the marker line is the
+// authoritative end-of-run signal and the grace period covers a crashed run
+// that will never write one.
+async function watchSession(project: string, values: string[]): Promise<void> {
+  const id = values[0];
+  if (!id || values.length > 1) fail(msg("watch-usage"));
+  const { sessions } = sessionDirs(project);
+  const session = readSession(sessions, id);
+  const log = join(sessions, `${sessionPrefix(session)}.log`);
+  const control = join(sessions, `${id}.ctl`);
+  const marker = `${msg("session-settled")}\n`;
+  let offset = 0;
+  let gracePolls = 0;
+  for (;;) {
+    if (existsSync(log)) {
+      const content = readFileSync(log, "utf8");
+      if (content.length > offset) {
+        process.stdout.write(content.slice(offset));
+        offset = content.length;
+        gracePolls = 0;
+      }
+      if (content.endsWith(marker) && !existsSync(control)) return;
+    }
+    if (existsSync(control)) {
+      gracePolls = 0;
+    } else {
+      gracePolls += 1;
+      if (gracePolls > 20) fail(msg("watch-not-settled", { id }));
+    }
+    await new Promise((resolvePoll) => setTimeout(resolvePoll, 500));
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
   const [name, ...values] = argv;
   if (name === "setup") return setup(home);
   if (!name || name === "help") return help();
   const project = process.cwd();
   if (name === "sessions") return listSessions(project);
+  if (name === "watch") return watchSession(project, values);
   if (name === "view") return view(project, values);
   if (name === "result") {
     const id = values[0];
@@ -886,6 +932,7 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
   await runPrompt(name, project, values);
+  if (sessionLog) appendFileSync(sessionLog, `${msg("session-settled")}\n`);
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {
