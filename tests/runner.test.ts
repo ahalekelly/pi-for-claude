@@ -316,7 +316,7 @@ test("run creates an isolated worktree and sends the composed prompt through the
   assert.match(request, /Additional input text/);
   assert.match(request, /Fix the auth flow/);
   assert.match(request, /Do not run git commit or git push/);
-  assert.deepEqual(readdirSync(model.agentDir).sort(), ["auth.json", "models.json", "settings.json"]);
+  assert.deepEqual(readdirSync(model.agentDir).sort(), ["auth.json", "models-store.json", "models.json", "settings.json"]);
 
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
   assert.equal(execFileSync(process.execPath, [cli, "result", "fix-auth"], { encoding: "utf8", cwd: root }), "Implemented auth.\n");

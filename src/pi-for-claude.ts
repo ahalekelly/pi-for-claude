@@ -8,7 +8,7 @@ import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
@@ -290,8 +290,7 @@ async function controlPortIsLive(path: string): Promise<boolean> {
 
 async function sdkRun(
   sdk: PiSdk,
-  authStorage: AuthStorage,
-  modelRegistry: ModelRegistry,
+  modelRuntime: ModelRuntime,
   session: Session,
   sessions: string,
   command: PromptCommand,
@@ -319,7 +318,7 @@ async function sdkRun(
   const settingsManager = locklessSettings(sdk.SettingsManager, session.worktree, configuredAgentDir, true);
   const separator = modelName.indexOf("/");
   if (separator === -1) fail(msg("unknown-model", { model: modelName }));
-  const model = modelRegistry.find(modelName.slice(0, separator), modelName.slice(separator + 1));
+  const model = modelRuntime.getModel(modelName.slice(0, separator), modelName.slice(separator + 1));
   if (!model) fail(msg("unknown-model", { model: modelName }));
 
   const webAccessPackage = dirname(fileURLToPath(import.meta.resolve("pi-web-access/package.json")));
@@ -350,8 +349,7 @@ async function sdkRun(
     cwd: session.worktree,
     model,
     thinkingLevel: thinking as (typeof thinkingLevels)[number],
-    authStorage,
-    modelRegistry,
+    modelRuntime,
     resourceLoader,
     sessionManager,
     settingsManager,
@@ -552,9 +550,8 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
-  const authStorage = sdk.AuthStorage.create();
-  const registry = sdk.ModelRegistry.create(authStorage);
-  const registeredModels = registry.getAll().map(({ provider, id }) => `${provider}/${id}`);
+  const modelRuntime = await sdk.ModelRuntime.create();
+  const registeredModels = modelRuntime.getModels().map(({ provider, id }) => `${provider}/${id}`);
   const resolvedModel = resolveModel(flags.model ?? command.model, flags.thinking ?? promptThinking, models, registeredModels);
   for (const path of [...flags.prepend, ...flags.append]) {
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
@@ -631,7 +628,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   }
 
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
-  const result = await sdkRun(sdk, authStorage, registry, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
+  const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
   for (const entry of command.output) {
     switch (entry.kind) {
       case "pi":

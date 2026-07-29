@@ -32,13 +32,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.80.6",
-    "@earendil-works/pi-coding-agent": "0.80.6",
-    "@earendil-works/pi-tui": "0.80.6",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "@earendil-works/pi-tui": "^0.82.1",
     "@sysid/sandbox-runtime-improved": "0.0.43-sysid.6",
-    "agent-browser": "0.31.1",
-    "pi-agent-browser-native": "0.2.66",
-    "pi-web-access": "0.13.0",
+    "agent-browser": "^0.33.1",
+    "pi-agent-browser-native": "^0.2.72",
+    "pi-web-access": "^0.15.0",
     "shell-quote": "1.10.0",
     "trash-cli": "7.2.0",
     "typebox": "1.1.38"
