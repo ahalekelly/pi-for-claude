@@ -16,7 +16,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
    Monitor({ command: "pi-for-claude implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
-   Exception: Pi's locally-executing web tools (`agent_browser`, `fetch_content`) break when pi-for-claude runs inside the Claude sandbox — nested sandboxing fails with `sandbox-exec` EPERM, an unwritable browser socket dir, and DNS ENOTFOUND — and Monitor is always sandboxed. Launch sessions that need those tools via unsandboxed background Bash instead (`nohup pi-for-claude run … &`); steer, queue, and consult still work. Provider-side `web_search` runs on OpenAI's servers and works fine sandboxed.
+   Exception: Pi's locally-executing web tools (`agent_browser`, `fetch_content`) break when pi-for-claude runs inside the Claude sandbox — nested sandboxing fails with `sandbox-exec` EPERM, an unwritable browser socket dir, and DNS ENOTFOUND — and Monitor is always sandboxed. Launch sessions that need those tools via unsandboxed background Bash instead (`nohup pi-for-claude run … &`), then attach a plain sandboxed Monitor with `pi-for-claude watch <session>`: it replays and follows the session's output (consult questions, stall warnings, final report) and exits when the session settles. Launch first, then attach. Steer, queue, and consult work as usual. Provider-side `web_search` runs on OpenAI's servers and works fine sandboxed.
 
 3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in a user reply because the user cannot see Monitor event bodies. Runs launched with `--no-consult` never ask.
 
@@ -49,6 +49,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 - `sessions` — list session ids, originating commands, and directories
 - `result <session>` — print the last completed assistant response
 - `view <session> [--no-open]` — export the conversation beside its JSONL as HTML and open it in the default browser
+- `watch <session>` — replay and follow a session's output from its log; exits when the session settles (for sessions launched outside a Monitor)
 - `steer <session> <message>` — deliver a message after the next tool call
 - `queue <session> <message>` — queue a message until the current agent task finishes
 - `interrupt <session>` — abort the active turn; the session remains resumable

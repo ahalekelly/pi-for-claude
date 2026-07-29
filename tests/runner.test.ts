@@ -538,7 +538,9 @@ test("run edits a non-git project in place and discard preserves its files", (t)
   const record = JSON.parse(readFileSync(recordPath, "utf8"));
   const prefix = record.createdAt.replaceAll(":", "-").replaceAll(".", "-");
   assert.equal(basename(recordPath), `${prefix}-change.pi-for-claude.json`);
-  assert.equal(readdirSync(sessions).some((file) => file.endsWith(".log")), false);
+  const log = readFileSync(join(sessions, `${prefix}-change.log`), "utf8");
+  assert.match(log, /Implemented in place\./);
+  assert.match(log, /Session settled\.\n$/);
   assert.match(output, /Implemented in place\./);
   assert.equal(record.kind, "in-place");
   assert.equal(record.worktree, realpathSync(root));
@@ -974,6 +976,47 @@ test("discard removes a review session's record without touching git", () => {
   assert.match(output, /Discarded 'review-1'/);
   assert.equal(existsSync(recordPath), false);
   assert.equal(git(root, "status", "--porcelain"), "");
+});
+
+test("watch follows a session launched outside a Monitor and exits when it settles", async (t) => {
+  const root = scratchRepo("pi-for-claude-watch-");
+  const plan = join(root, "watched.md");
+  writeFileSync(plan, "Do the thing.");
+  const model = startModelServer(root, [{ kind: "text", text: "Watched result.", delayMs: 1500 }]);
+  t.after(model.stop);
+
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const env = { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) };
+  const run = spawn(process.execPath, [cli, "run", plan], { cwd: root, env, stdio: "ignore" });
+
+  const deadline = Date.now() + 15000;
+  const waitUntil = async (predicate: () => boolean, what: string) => {
+    while (!predicate()) {
+      if (Date.now() > deadline) assert.fail(`timed out waiting for ${what}`);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+  };
+
+  try {
+    const sessions = join(realpathSync(root), ".agents/sessions");
+    await waitUntil(() => existsSync(sessions) && readdirSync(sessions).some((file) => file.endsWith(".log")), "the session log");
+    const watch = spawn(process.execPath, [cli, "watch", "watched"], { cwd: root, env });
+    let stdout = "";
+    watch.stdout.setEncoding("utf8");
+    watch.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    try {
+      const exitCode = await new Promise<number | null>((resolveExit) => watch.once("exit", resolveExit));
+      assert.equal(exitCode, 0);
+      assert.match(stdout, /Watched result\./);
+      assert.match(stdout, /Session settled\./);
+    } finally {
+      if (watch.exitCode === null) watch.kill("SIGKILL");
+    }
+  } finally {
+    if (run.exitCode === null) run.kill("SIGKILL");
+  }
 });
 
 test("run prints each consult question once with its answer path", async (t) => {
