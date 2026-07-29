@@ -38,6 +38,7 @@ type Flags = {
   model: string | undefined;
   thinking: string | undefined;
   base: string;
+  consult: boolean;
 };
 
 // Sandboxes provide network only through the proxy in HTTPS_PROXY, which
@@ -164,9 +165,13 @@ function writeSession(sessions: string, session: Session): void {
 }
 
 function parseFlags(values: string[]): Flags {
-  const flags: Flags = { args: [], prepend: [], append: [], model: undefined, thinking: undefined, base: "HEAD" };
+  const flags: Flags = { args: [], prepend: [], append: [], model: undefined, thinking: undefined, base: "HEAD", consult: true };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index]!;
+    if (value === "--no-consult") {
+      flags.consult = false;
+      continue;
+    }
     if (!["--prepend", "--append", "--model", "--thinking", "--base"].includes(value)) {
       flags.args.push(value);
       continue;
@@ -297,6 +302,7 @@ async function sdkRun(
   prompt: string,
   modelName: string,
   thinking: string,
+  consult: boolean,
 ): Promise<string> {
   const control = join(sessions, `${session.id}.ctl`);
   if (existsSync(control)) {
@@ -331,7 +337,7 @@ async function sdkRun(
     noExtensions: true,
     additionalExtensionPaths: [
       join(packageExtensions, "sandbox", `index.${extension}`),
-      join(packageExtensions, `consult.${extension}`),
+      ...(consult ? [join(packageExtensions, `consult.${extension}`)] : []),
       join(webAccessPackage, "index.ts"),
       join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
     ],
@@ -344,7 +350,7 @@ async function sdkRun(
   const projectTools = command.sandbox === "read-only"
     ? ["read", "bash", "grep", "find", "ls"]
     : ["read", "bash", "write", "edit", "grep", "find", "ls"];
-  const capabilityTools = ["consult_orchestrator", "web_search", "fetch_content", "get_search_content", "agent_browser"];
+  const capabilityTools = [...(consult ? ["consult_orchestrator"] : []), "web_search", "fetch_content", "get_search_content", "agent_browser"];
   const { session: agentSession, extensionsResult } = await sdk.createAgentSession({
     cwd: session.worktree,
     model,
@@ -484,7 +490,7 @@ function composePrompt(command: PromptCommand, worktree: string, args: string[],
     injections.plan = readFileSync(planPath, "utf8");
   }
   const readFiles = (paths: string[]) => paths.map((path) => readFileSync(resolve(path), "utf8")).join("\n\n");
-  const guidance = command.lifecycle === "direct" ? "" : command.consult;
+  const guidance = command.lifecycle === "direct" ? "" : flags.consult ? command.consult : msg("no-consult-guidance");
   const templateArgs = command.lifecycle === "create" || command.lifecycle === "in-place" ? args.slice(1) : args;
   const prompt = [readFiles(flags.prepend), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.append)]
     .filter(Boolean)
@@ -628,7 +634,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   }
 
   const prompt = composePrompt(command, session.worktree, promptArgs, flags);
-  const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking);
+  const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
   for (const entry of command.output) {
     switch (entry.kind) {
       case "pi":

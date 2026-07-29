@@ -16,7 +16,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
    Monitor({ command: "pi-for-claude implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
-3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in a user reply because the user cannot see Monitor event bodies.
+3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in a user reply because the user cannot see Monitor event bodies. Runs launched with `--no-consult` never ask.
 
 4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt` as needed.
 
@@ -58,6 +58,7 @@ Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 - `--model <label-or-id>` — override the prompt's model; labels come from the pi-for-claude checkout's `models.json` (`default` selects the latest openai-codex Sol model at medium, `best` selects it at xhigh, and `cheap` selects the latest Luna model at medium)
 - `--thinking <level>` — override the model label's default thinking level
 - `--base <ref>` — diff base for reviews
+- `--no-consult` — unattended run: removes the consult tool and its guidance, so Pi makes conservative assumptions and reports them instead of blocking on questions
 - `--prepend <file>` / `--append <file>` — prepend/append text files to the prompt; paths resolve from the current directory
 
 <!-- pi-scoped-models:start -->

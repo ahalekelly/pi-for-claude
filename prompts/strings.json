@@ -66,6 +66,7 @@
   "must-start-with-frontmatter": "Prompt must start with frontmatter",
   "no-assistant-response": "Session '$id' has no assistant response",
   "no-command-output": "(no command output)",
+  "no-consult-guidance": "This run is unattended: the orchestrator is not available for questions, and there is no consult tool. Never pause to wait for input. When a decision is ambiguous, make the most conservative in-scope assumption, proceed, and report the assumption in your summary.",
   "no-thinking-level": "No thinking level configured for model '$label'",
   "path-required": "PATH environment variable is required",
   "pi-model-error-no-message": "Pi reported a model error without a message",

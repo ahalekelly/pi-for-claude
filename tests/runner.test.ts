@@ -475,6 +475,25 @@ test("SDK sessions expose the sandboxed tool allowlist in every mode", (t) => {
   assert.deepEqual(review, writeTools.filter((name) => name !== "write" && name !== "edit"));
 });
 
+test("--no-consult removes the consult tool and swaps the guidance", (t) => {
+  const root = scratchRepo("pi-for-claude-no-consult-");
+  writeFileSync(join(root, "task.md"), "Do the thing.\n");
+  const model = startModelServer(root, [{ kind: "text", text: "done" }]);
+  t.after(model.stop);
+
+  execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "run", "task.md", "--no-consult"], {
+    cwd: root,
+    env: { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+  });
+
+  const request = modelRequests(model.requestsPath)[0]!;
+  const toolNames = (request.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name);
+  assert.equal(toolNames.includes("consult_orchestrator"), false);
+  const text = JSON.stringify(request);
+  assert.doesNotMatch(text, /Ask when blocked/);
+  assert.match(text, /This run is unattended/);
+});
+
 test("sandboxed bash cannot read Pi credentials but can read a project file", (t) => {
   const root = scratchRepo("pi-for-claude-auth-sandbox-");
   writeFileSync(join(root, "check.md"), "Check file access.\n");

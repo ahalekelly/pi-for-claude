@@ -99,6 +99,32 @@ $plan
   );
 });
 
+test("parsePrompt supports a block-scalar consult field", () => {
+  const command = parsePrompt(`---
+description: Implement in place
+argument-hint: "<plan-file>"
+model: default
+thinking: high
+sandbox: project-write
+worktree: none
+session: new
+consult: |
+  Ask when blocked.
+
+  Consult when the plan is unclear.
+---
+$plan
+`);
+  assert.equal(command.lifecycle, "in-place");
+  if (command.lifecycle === "in-place") {
+    assert.equal(command.consult, "Ask when blocked.\n\nConsult when the plan is unclear.");
+  }
+  assert.throws(
+    () => parsePrompt("---\ndescription: test\nconsult: |\n---\nbody"),
+    /consult.*empty/,
+  );
+});
+
 test("renderTemplate expands pi arguments and injected values", () => {
   assert.equal(
     renderTemplate(

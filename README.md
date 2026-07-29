@@ -142,7 +142,7 @@ Built-in commands do not call a model:
 - `discard <session>` — close a session and, if present, remove its worktree and branch
 - `help` — list the available prompt commands
 
-Prompt commands accept `--model <label-or-id>`, `--thinking <level>`, `--base <ref>`, and repeatable `--prepend <file>` and `--append <file>` attachments.
+Prompt commands accept `--model <label-or-id>`, `--thinking <level>`, `--base <ref>`, `--no-consult` (unattended run: removes the consult tool and its guidance, so Pi makes conservative assumptions instead of blocking on questions), and repeatable `--prepend <file>` and `--append <file>` attachments.
 
 ## Model Selection
 

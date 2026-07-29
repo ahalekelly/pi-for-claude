@@ -158,6 +158,18 @@ export function parsePrompt(source: string): PromptCommand {
       continue;
     }
 
+    if (field === "consult" && rawValue === "|") {
+      const block: string[] = [];
+      while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
+        const blockLine = lines[index + 1]!;
+        block.push(blockLine.trim() ? blockLine.slice(2) : "");
+        index += 1;
+      }
+      if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("field-empty", { field }));
+      values.set(field, block.join("\n").trimEnd());
+      continue;
+    }
+
     values.set(field, scalar(rawValue, field));
   }
 

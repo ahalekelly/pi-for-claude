@@ -6,7 +6,12 @@ thinking: high
 sandbox: worktree-write
 worktree: create
 session: new
-consult: Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
+consult: |
+  Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
+
+  Consult the orchestrator with `consult_orchestrator(question)`, which blocks for up to 10 minutes until the orchestrator answers. On timeout, proceed with your best judgment and flag the assumption in your summary.
+
+  Consult when the plan is unclear, if you think a deviation from the plan would be warranted, when stuck (recurring errors or a non-converging approach), when a rebase conflict's right resolution isn't clear, or when multiple approaches seem viable but have tradeoffs. On most tasks, one consult before the approach crystallizes is enough. If your evidence points one way and the orchestrator's instructions another, surface the conflict ("I found X, you suggest Y") rather than silently switching.
 output:
   - pi
   - shell: |
@@ -18,11 +23,7 @@ Implement the plan below. It is also on disk at $plan_path if you need to re-rea
 
 Your environment: you are in a git worktree on a private session branch, working with an orchestrator agent. You can stage, commit, and rebase this branch and append to `<main>/.git/info/exclude`; pushing, other branches, git config, and hooks are blocked. The orchestrator may send you messages mid-run: steering arrives between your tool calls, queued messages arrive after you hand back to the orchestrator.
 
-Consult the orchestrator with `consult_orchestrator(question)`, which blocks for up to 10 minutes until the orchestrator answers. On timeout, proceed with your best judgment and flag the assumption in your summary.
-
-Consult when the plan is unclear, if you think a deviation from the plan would be warranted, when stuck (recurring errors or a non-converging approach), or when multiple approaches seem viable but have tradeoffs. On most tasks, one consult before the approach crystallizes is enough. If your evidence points one way and the orchestrator's instructions another, surface the conflict ("I found X, you suggest Y") rather than silently switching.
-
-Handing back: Before testing your changes, always attempt to rebase onto main. If a rebase conflict is yours to judge, resolve it; if the right resolution isn't clear, consult the orchestrator — or hand back with the rebase still in progress and explain the conflict in your summary, and the orchestrator takes over. Otherwise finish with a clean tree and your work committed with well-written messages. One commit per feature is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` if they should be kept — uncommitted leftovers block the merge. If you hand back a dirty tree without an in-progress rebase, the runner sends the problem back to you once; if you still can't hand back cleanly, explain why in your summary — the state is reported to the orchestrator.
+Handing back: Before testing your changes, always attempt to rebase onto main. If a rebase conflict is yours to judge, resolve it; otherwise hand back with the rebase still in progress and explain the conflict in your summary, and the orchestrator takes over. Otherwise finish with a clean tree and your work committed with well-written messages. One commit per feature is preferred. Delete scratch files or add them to `.gitignore` or `<main>/.git/info/exclude` if they should be kept — uncommitted leftovers block the merge. If you hand back a dirty tree without an in-progress rebase, the runner sends the problem back to you once; if you still can't hand back cleanly, explain why in your summary — the state is reported to the orchestrator.
 
 After you finish, the orchestrator reviews your commit and may resume this conversation with follow-up requests. Acceptance is `pi-for-claude merge`, which:
 
