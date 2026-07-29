@@ -16,6 +16,8 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
    Monitor({ command: "pi-for-claude implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
+   Exception: Pi's locally-executing web tools (`agent_browser`, `fetch_content`) break when pi-for-claude runs inside the Claude sandbox — nested sandboxing fails with `sandbox-exec` EPERM, an unwritable browser socket dir, and DNS ENOTFOUND — and Monitor is always sandboxed. Launch sessions that need those tools via unsandboxed background Bash instead (`nohup pi-for-claude run … &`); steer, queue, and consult still work. Provider-side `web_search` runs on OpenAI's servers and works fine sandboxed.
+
 3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks for up to ten minutes waiting for your response in `<session>.answer.md`. The run's Monitor emits the question and answer-file path. Restate the question and your answer in a user reply because the user cannot see Monitor event bodies. Runs launched with `--no-consult` never ask.
 
 4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt` as needed.
