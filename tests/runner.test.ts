@@ -939,8 +939,20 @@ test("run warns when the SDK event stream goes silent", () => {
   const plan = join(root, "stall.md");
   writeFileSync(plan, "Keep running without events.");
   const model = startModelServer(root, [{ kind: "text", text: "Finished.", delayMs: 2000 }]);
+  // Fake a stall by jumping Date.now +6min once the model server has received
+  // the request (it appends to requestsPath on arrival, before the delayed
+  // reply). That lands the jump after every prompt-submission event has set
+  // lastEventAt and before any response event resets it, with no assumption
+  // about how long CLI startup takes.
   const clock = join(root, "advance-clock.mjs");
-  writeFileSync(clock, "const real = Date.now.bind(Date); const started = real(); Date.now = () => real() + (real() - started > 700 ? 360000 : 0);\n");
+  writeFileSync(clock, `import { existsSync } from "node:fs";
+const real = Date.now.bind(Date);
+let jumped = false;
+Date.now = () => {
+  if (!jumped) jumped = existsSync(${JSON.stringify(model.requestsPath)});
+  return real() + (jumped ? 360000 : 0);
+};
+`);
   try {
     const run = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "run", plan], {
       cwd: root,
