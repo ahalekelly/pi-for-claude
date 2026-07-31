@@ -21,10 +21,10 @@ Add a Markdown file with the prompt header to prompts/ to create a new pi-for-cl
 
 You must have Node.js 22.19 or newer.
 
-Install from GitHub:
+Install from npm:
 
 ```sh
-npm install --global github:ahalekelly/pi-for-claude
+npm install --global pi-for-claude
 ```
 
 Configure Claude Code's sandbox to permit Pi's authentication writes and loopback control channel, and install the global instructions and git ignore:
