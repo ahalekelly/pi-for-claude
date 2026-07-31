@@ -32,10 +32,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.67",
     "@earendil-works/pi-ai": "^0.83.0",
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@earendil-works/pi-tui": "^0.83.0",
-    "@sysid/sandbox-runtime-improved": "0.0.43-sysid.6",
     "agent-browser": "^0.33.1",
     "pi-agent-browser-native": "^0.2.72",
     "pi-web-access": "^0.17.0",
