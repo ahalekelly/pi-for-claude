@@ -817,9 +817,7 @@ function merge(project: string, id: string): void {
   const { main, sessions } = sessionDirs(project);
   const session = readSession(sessions, id);
   if (session.kind !== "worktree") fail(msg("session-no-mergeable-branch", { id }));
-  if (existsSync(git(session.worktree, ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"]))) {
-    fail(msg("session-rebase-in-progress", { id }));
-  }
+  if (rebaseInProgress(session.worktree)) fail(msg("session-rebase-in-progress", { id }));
   if (git(session.worktree, ["status", "--porcelain"])) {
     fail(msg("session-uncommitted-changes", { id, worktree: session.worktree }));
   }
