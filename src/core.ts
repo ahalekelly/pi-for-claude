@@ -269,10 +269,7 @@ export function resolveModel(
     }
     model = latest!.candidate;
   }
-  const labelThinking = typeof selected === "string" ? undefined : (selected as { thinking?: unknown }).thinking;
-  if (labelThinking !== undefined && typeof labelThinking !== "string") {
-    throw new Error(msg("model-label-invalid-thinking", { label: labelOrId }));
-  }
+  const labelThinking = typeof selected === "string" ? undefined : (selected as { thinking: string }).thinking;
   const thinking = explicitThinking ?? labelThinking;
   if (!thinking) throw new Error(msg("no-thinking-level", { label: labelOrId }));
   return { model, thinking: enumValue("thinking", thinking, thinkingLevels) };

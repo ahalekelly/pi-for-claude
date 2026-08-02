@@ -53,7 +53,6 @@
   "merged": "Merged '$id' into $branch and removed its worktree and branch.",
   "missing-injection": "Missing injection '$name'",
   "missing-prompt-field": "Missing prompt field '$field'",
-  "model-label-invalid-thinking": "Model label '$label' has an invalid thinking level",
   "model-label-malformed": "Model label '$label' is malformed",
   "model-label-no-provider": "Model label '$label' must contain a provider/model id",
   "model-label-no-thinking": "Model label '$label' must contain a thinking level",
