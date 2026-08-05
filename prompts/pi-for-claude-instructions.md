@@ -2,7 +2,7 @@
 
 Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
-`implement-in-worktree` requires a git repository and creates a persistent worktree session under the main checkout's `.agents/`. `run` edits the project directory directly and also works without git. Commands must run inside the project directory. In a git repository, use `implement-in-worktree` when running multiple agents simultaneously, `run` is for non-git directories and single-subagent workflows.
+`implement-in-worktree` requires a git repository and creates a persistent worktree session under the main checkout's `.agents/`. `run` edits the project directory directly and also works without git. Commands must run inside the project directory — at its root for a git project, since pi-for-claude refuses to run from a subdirectory of a checkout rather than adopt the enclosing repository as the project. In a git repository, use `implement-in-worktree` when running multiple agents simultaneously, `run` is for non-git directories and single-subagent workflows. For a scratch or research session that shouldn't touch any repository, a fresh directory outside every git checkout is the usual choice (e.g. under `/tmp/claude`); `~/.claude-work` paths physically live inside the `~/.agents` repo, so they don't qualify.
 
 ## Worktree workflow
 

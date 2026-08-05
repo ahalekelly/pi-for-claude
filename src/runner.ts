@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { renderString } from "./core.ts";
@@ -29,6 +30,12 @@ export function mainCheckout(projectDir: string): string {
   }
   const commonDir = result.stdout.trim();
   if (git(project, ["rev-parse", "--is-bare-repository"]) === "true") throw new Error(msg("bare-repository-unsupported"));
+  // git rev-parse walks up from any subdirectory, so without this check a
+  // launch from a directory that merely sits inside some checkout (e.g. a
+  // scratch dir under a git-tracked home) silently adopts that repository as
+  // the project.
+  const toplevel = git(project, ["rev-parse", "--path-format=absolute", "--show-toplevel"]);
+  if (realpathSync(project) !== toplevel) throw new Error(msg("project-not-checkout-root", { project, root: toplevel }));
   // A submodule's git dir lives under the superproject's .git/modules, with
   // core.worktree pointing back at the checkout. (`git worktree list` cannot
   // substitute here: for submodules it reports the git dir as the main

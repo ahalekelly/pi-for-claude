@@ -71,6 +71,14 @@ test("mainCheckout rejects a bare repository", () => {
   assert.throws(() => mainCheckout(root), /Bare git repositories are not supported/);
 });
 
+test("mainCheckout rejects a subdirectory of a checkout instead of adopting the enclosing repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-subdir-"));
+  git(root, "init", "-b", "main");
+  const sub = join(root, "scratch", "tmp");
+  mkdirSync(sub, { recursive: true });
+  assert.throws(() => mainCheckout(sub), /is inside the git checkout .* but is not its root/);
+});
+
 test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", () => {
   assert.equal(sessionIdFromPlan("plans/fix-auth.md"), "fix-auth");
   assert.throws(() => sessionIdFromPlan("plans/Bad Plan.md"), /portable session id/);

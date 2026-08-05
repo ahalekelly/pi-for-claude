@@ -76,7 +76,7 @@ To resume the same conversation when Pi needs another pass:
 pi-for-claude resume fix-auth "Handle the failing edge-case test."
 ```
 
-In a non-git project, the directory you run the commands in identifies the project and its sessions.
+In a non-git project, the directory you run the commands in identifies the project and its sessions. In a git project, run commands from the checkout root: pi-for-claude refuses to run from a subdirectory rather than adopt the enclosing repository as the project, which matters when a scratch directory happens to sit inside a larger checkout.
 
 ## Running in an isolated worktree
 
