@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import test from "node:test";
 
-import { checkoutRoot, sessionIdFromPlan } from "../src/runner.ts";
+import { resolveProject, sessionIdFromPlan } from "../src/runner.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -26,7 +26,7 @@ function sessionArtifact(sessions: string, id: string, extension: "pi-for-claude
   return join(sessions, files[0]!);
 }
 
-test("checkoutRoot treats a linked worktree as its own project root", () => {
+test("resolveProject treats a linked worktree as its own project root", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-git-"));
   git(root, "init", "-b", "main");
   git(root, "config", "commit.gpgsign", "false");
@@ -38,11 +38,11 @@ test("checkoutRoot treats a linked worktree as its own project root", () => {
   const linked = join(root, "linked");
   git(root, "worktree", "add", "-b", "topic", linked);
 
-  assert.equal(checkoutRoot(root), realpathSync(root));
-  assert.equal(checkoutRoot(linked), realpathSync(linked));
+  assert.deepEqual(resolveProject(root), { kind: "checkout", main: realpathSync(root) });
+  assert.deepEqual(resolveProject(linked), { kind: "checkout", main: realpathSync(linked) });
 });
 
-test("checkoutRoot resolves a submodule checkout and its linked worktrees", () => {
+test("resolveProject resolves a submodule checkout and its linked worktrees", () => {
   const source = mkdtempSync(join(tmpdir(), "pi-for-claude-sub-src-"));
   git(source, "init", "-b", "main");
   git(source, "config", "commit.gpgsign", "false");
@@ -59,30 +59,39 @@ test("checkoutRoot resolves a submodule checkout and its linked worktrees", () =
   git(superRoot, "config", "user.name", "pi-for-claude test");
   git(superRoot, "-c", "protocol.file.allow=always", "submodule", "add", source, "sub");
   const sub = join(superRoot, "sub");
-  assert.equal(checkoutRoot(sub), realpathSync(sub));
+  assert.deepEqual(resolveProject(sub), { kind: "checkout", main: realpathSync(sub) });
 
   const linked = join(superRoot, "sub-linked");
   git(sub, "worktree", "add", "-b", "topic", linked);
-  assert.equal(checkoutRoot(linked), realpathSync(linked));
+  assert.deepEqual(resolveProject(linked), { kind: "checkout", main: realpathSync(linked) });
 });
 
-test("checkoutRoot rejects a bare repository", () => {
+test("resolveProject rejects a bare repository", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-bare-"));
   git(root, "init", "--bare");
-  assert.throws(() => checkoutRoot(root), /Bare git repositories are not supported/);
+  assert.throws(() => resolveProject(root), /Bare git repositories are not supported/);
 });
 
-test("checkoutRoot rejects a subdirectory of a checkout instead of adopting the enclosing repository", () => {
+test("resolveProject rejects a subdirectory of a checkout instead of adopting the enclosing repository", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-subdir-"));
   git(root, "init", "-b", "main");
   const sub = join(root, "scratch", "tmp");
   mkdirSync(sub, { recursive: true });
-  assert.throws(() => checkoutRoot(sub), /is inside the git checkout .* but is not its root/);
+  assert.throws(() => resolveProject(sub), /is inside the git checkout .* but is neither its root nor a directory the checkout ignores/);
 });
 
-test("checkoutRoot treats a directory outside every checkout as a non-git project", () => {
+test("resolveProject treats a gitignored subdirectory of a checkout as a standalone project", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-ignored-subdir-"));
+  git(root, "init", "-b", "main");
+  writeFileSync(join(root, ".gitignore"), "scratch/\n");
+  const sub = join(root, "scratch", "tmp");
+  mkdirSync(sub, { recursive: true });
+  assert.deepEqual(resolveProject(sub), { kind: "standalone", dir: sub });
+});
+
+test("resolveProject treats a directory outside every checkout as a non-git project", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-plain-"));
-  assert.equal(checkoutRoot(root), resolve(root));
+  assert.deepEqual(resolveProject(root), { kind: "standalone", dir: resolve(root) });
 });
 
 test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", () => {
@@ -718,6 +727,23 @@ test("implement-in-worktree requires git", () => {
   const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "implement-in-worktree", "change.md"], {
     encoding: "utf8",
     cwd: root,
+    env: { ...process.env, PI_CODING_AGENT_DIR: isolatedAgentDir(root), PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /requires a git repository; use run for in-place work/);
+});
+
+test("implement-in-worktree treats a gitignored subdirectory of a checkout as non-git", () => {
+  const root = scratchRepo("pi-for-claude-ignored-gate-");
+  writeFileSync(join(root, ".gitignore"), ".agents/\nscratch/\n");
+  git(root, "add", ".gitignore");
+  git(root, "commit", "-m", "ignore scratch");
+  const sub = join(root, "scratch", "tmp");
+  mkdirSync(sub, { recursive: true });
+  writeFileSync(join(sub, "change.md"), "Create a file.\n");
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "implement-in-worktree", "change.md"], {
+    encoding: "utf8",
+    cwd: sub,
     env: { ...process.env, PI_CODING_AGENT_DIR: isolatedAgentDir(root), PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
   });
   assert.equal(result.status, 1);
