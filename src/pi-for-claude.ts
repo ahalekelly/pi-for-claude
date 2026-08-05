@@ -13,7 +13,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
-import { checkoutRoot, git, isGitRepository, sessionIdFromPlan } from "./runner.ts";
+import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
 import { setup } from "./setup.ts";
 
 type SessionFields = {
@@ -80,12 +80,13 @@ function emit(text: string): void {
 }
 
 function sessionDirs(project: string) {
-  const root = checkoutRoot(project);
+  const resolved = resolveProject(project);
+  const root = resolved.kind === "checkout" ? resolved.main : resolved.dir;
   const sessions = join(root, ".agents", "sessions");
   const worktrees = join(root, ".agents", "worktrees");
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
   mkdirSync(worktrees, { recursive: true });
-  return { root, sessions, worktrees };
+  return { root, sessions, worktrees, kind: resolved.kind };
 }
 
 function sessionPrefix(session: SessionFields): string {
@@ -575,7 +576,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
   const dirs = sessionDirs(project);
-  if (command.lifecycle === "create" && !isGitRepository(dirs.root)) fail(msg("implement-in-worktree-requires-git"));
+  if (command.lifecycle === "create" && dirs.kind !== "checkout") fail(msg("implement-in-worktree-requires-git"));
   let session: Session;
   let promptArgs = flags.args;
 

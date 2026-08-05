@@ -73,7 +73,7 @@
   "plan-file-required": "A plan file is required",
   "plan-name-not-portable": "Plan name '$name' must be a portable session id using lowercase letters, numbers, and hyphens",
   "project-moved-after-rebase": "The project checkout moved after rebase; run merge again to rebase onto its new HEAD",
-  "project-not-checkout-root": "$project is inside the git checkout $root but is not its root. Run pi-for-claude from the checkout root to work on that repository, or from a directory outside any git checkout to treat the working directory as a non-git project.",
+  "project-not-checkout-root": "$project is inside the git checkout $root but is neither its root nor a directory the checkout ignores. Run pi-for-claude from the checkout root to work on that repository, or from a directory outside any git checkout (or one it gitignores) to treat the working directory as a non-git project.",
   "project-not-on-branch": "The project checkout must be on a branch",
   "question-from-session": "$text\n\nConsult question from session '$id'. Answer by writing $path\nThe user cannot see this event — restate the question and your answer in your visible reply.",
   "read-denied": "Read denied: '$path' is under restricted path '$entry'",
