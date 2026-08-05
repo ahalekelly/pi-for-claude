@@ -3,10 +3,10 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createConnection, createServer as createNetServer } from "node:net";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import test from "node:test";
 
-import { mainCheckout, sessionIdFromPlan } from "../src/runner.ts";
+import { checkoutRoot, sessionIdFromPlan } from "../src/runner.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -26,7 +26,7 @@ function sessionArtifact(sessions: string, id: string, extension: "pi-for-claude
   return join(sessions, files[0]!);
 }
 
-test("mainCheckout resolves the shared checkout from a linked worktree", () => {
+test("checkoutRoot treats a linked worktree as its own project root", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-git-"));
   git(root, "init", "-b", "main");
   git(root, "config", "commit.gpgsign", "false");
@@ -38,10 +38,11 @@ test("mainCheckout resolves the shared checkout from a linked worktree", () => {
   const linked = join(root, "linked");
   git(root, "worktree", "add", "-b", "topic", linked);
 
-  assert.equal(mainCheckout(linked), realpathSync(root));
+  assert.equal(checkoutRoot(root), realpathSync(root));
+  assert.equal(checkoutRoot(linked), realpathSync(linked));
 });
 
-test("mainCheckout resolves a submodule checkout and its linked worktrees", () => {
+test("checkoutRoot resolves a submodule checkout and its linked worktrees", () => {
   const source = mkdtempSync(join(tmpdir(), "pi-for-claude-sub-src-"));
   git(source, "init", "-b", "main");
   git(source, "config", "commit.gpgsign", "false");
@@ -58,25 +59,30 @@ test("mainCheckout resolves a submodule checkout and its linked worktrees", () =
   git(superRoot, "config", "user.name", "pi-for-claude test");
   git(superRoot, "-c", "protocol.file.allow=always", "submodule", "add", source, "sub");
   const sub = join(superRoot, "sub");
-  assert.equal(mainCheckout(sub), realpathSync(sub));
+  assert.equal(checkoutRoot(sub), realpathSync(sub));
 
   const linked = join(superRoot, "sub-linked");
   git(sub, "worktree", "add", "-b", "topic", linked);
-  assert.equal(mainCheckout(linked), realpathSync(sub));
+  assert.equal(checkoutRoot(linked), realpathSync(linked));
 });
 
-test("mainCheckout rejects a bare repository", () => {
+test("checkoutRoot rejects a bare repository", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-bare-"));
   git(root, "init", "--bare");
-  assert.throws(() => mainCheckout(root), /Bare git repositories are not supported/);
+  assert.throws(() => checkoutRoot(root), /Bare git repositories are not supported/);
 });
 
-test("mainCheckout rejects a subdirectory of a checkout instead of adopting the enclosing repository", () => {
+test("checkoutRoot rejects a subdirectory of a checkout instead of adopting the enclosing repository", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-subdir-"));
   git(root, "init", "-b", "main");
   const sub = join(root, "scratch", "tmp");
   mkdirSync(sub, { recursive: true });
-  assert.throws(() => mainCheckout(sub), /is inside the git checkout .* but is not its root/);
+  assert.throws(() => checkoutRoot(sub), /is inside the git checkout .* but is not its root/);
+});
+
+test("checkoutRoot treats a directory outside every checkout as a non-git project", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-plain-"));
+  assert.equal(checkoutRoot(root), resolve(root));
 });
 
 test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", () => {
@@ -579,6 +585,42 @@ test("run in a git project creates no branch or worktree", (t) => {
   assert.equal(record.worktree, realpathSync(root));
   assert.equal(git(root, "branch", "--list", "pi/change"), "");
   assert.equal(existsSync(join(root, ".agents/worktrees/change")), false);
+});
+
+test("a linked worktree is its own project: sessions, pi worktrees, and merge stay inside it", (t) => {
+  const root = realpathSync(scratchRepo("pi-for-claude-worktree-launch-"));
+  const linked = join(root, "linked");
+  git(root, "worktree", "add", "-b", "topic", linked);
+  writeFileSync(join(linked, "topic.txt"), "topic\n");
+  git(linked, "add", "topic.txt");
+  git(linked, "commit", "-m", "Topic base");
+  writeFileSync(join(linked, "fix-auth.md"), "Fix the auth flow.\n");
+  const model = startModelServer(linked, [{ kind: "text", text: "Implemented auth." }]);
+  t.after(model.stop);
+
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  execFileSync(process.execPath, [cli, "implement-in-worktree", "fix-auth.md"], {
+    encoding: "utf8",
+    cwd: linked,
+    env: { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(linked) },
+  });
+
+  const worktree = join(linked, ".agents/worktrees/fix-auth");
+  const record = JSON.parse(readFileSync(sessionArtifact(join(linked, ".agents/sessions"), "fix-auth", "pi-for-claude.json"), "utf8"));
+  assert.equal(record.mainCheckout, linked);
+  assert.equal(record.baseCommit, git(linked, "rev-parse", "HEAD"));
+  assert.equal(existsSync(join(root, ".agents")), false, "the shared checkout keeps no session state for a worktree launch");
+  assert.equal(existsSync(join(worktree, "topic.txt")), true, "the session branches from the launch worktree's HEAD");
+
+  writeFileSync(join(worktree, "auth.txt"), "fixed\n");
+  git(worktree, "add", "auth.txt");
+  git(worktree, "commit", "-m", "Fix auth flow");
+
+  assert.match(execFileSync(process.execPath, [cli, "merge", "fix-auth"], { encoding: "utf8", cwd: linked }), /Merged 'fix-auth'/);
+  assert.equal(git(linked, "branch", "--show-current"), "topic");
+  assert.equal(readFileSync(join(linked, "auth.txt"), "utf8"), "fixed\n");
+  assert.equal(git(root, "log", "-1", "--format=%s"), "initial", "the shared checkout's branch is untouched");
+  assert.equal(existsSync(join(root, "auth.txt")), false);
 });
 
 test("resume rejects a review session", () => {
