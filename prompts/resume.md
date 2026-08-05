@@ -12,7 +12,7 @@ output:
   - shell: |
       git status --short
       git diff --stat
-      main_branch="$(git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." branch --show-current)"
-      git log --oneline --no-decorate "$main_branch..HEAD"
+      base_branch="$(git -C "$PI_FOR_CLAUDE_PROJECT" branch --show-current)"
+      git log --oneline --no-decorate "$base_branch..HEAD"
 ---
 $@

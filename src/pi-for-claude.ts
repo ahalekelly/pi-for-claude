@@ -13,7 +13,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
-import { git, isGitRepository, mainCheckout, sessionIdFromPlan } from "./runner.ts";
+import { checkoutRoot, git, isGitRepository, sessionIdFromPlan } from "./runner.ts";
 import { setup } from "./setup.ts";
 
 type SessionFields = {
@@ -80,12 +80,12 @@ function emit(text: string): void {
 }
 
 function sessionDirs(project: string) {
-  const main = mainCheckout(project);
-  const sessions = join(main, ".agents", "sessions");
-  const worktrees = join(main, ".agents", "worktrees");
+  const root = checkoutRoot(project);
+  const sessions = join(root, ".agents", "sessions");
+  const worktrees = join(root, ".agents", "worktrees");
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
   mkdirSync(worktrees, { recursive: true });
-  return { main, sessions, worktrees };
+  return { root, sessions, worktrees };
 }
 
 function sessionPrefix(session: SessionFields): string {
@@ -236,9 +236,11 @@ function bestEffortInputShell(command: string, cwd: string): string {
 // Output shell blocks run traced (`+ command` lines interleaved with their
 // output) so the orchestrator sees what produced each result. They are
 // best-effort: a failing command's error text appears in the trace, but never
-// fails the run they decorate.
-function tracedShell(command: string, cwd: string): string {
-  const result = spawnSync("sh", ["-c", `exec 2>&1\nset -x\n${command}`], { cwd, encoding: "utf8" });
+// fails the run they decorate. PI_FOR_CLAUDE_PROJECT names the checkout the run
+// was launched from, which a session worktree cannot derive from git alone.
+function tracedShell(command: string, cwd: string, project: string): string {
+  const env = { ...process.env, PI_FOR_CLAUDE_PROJECT: project };
+  const result = spawnSync("sh", ["-c", `exec 2>&1\nset -x\n${command}`], { cwd, env, encoding: "utf8" });
   if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
   return result.stdout.trimEnd();
 }
@@ -487,9 +489,10 @@ async function sdkRun(
   }
 }
 
-function composePrompt(command: PromptCommand, worktree: string, args: string[], flags: Flags): string {
+function composePrompt(command: PromptCommand, worktree: string, project: string, args: string[], flags: Flags): string {
   const injections: Record<string, string> = {};
   injections.base = flags.base;
+  injections.project = project;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
   if (command.lifecycle === "create" || command.lifecycle === "in-place") {
     const plan = args[0];
@@ -572,7 +575,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
   const dirs = sessionDirs(project);
-  if (command.lifecycle === "create" && !isGitRepository(dirs.main)) fail(msg("implement-in-worktree-requires-git"));
+  if (command.lifecycle === "create" && !isGitRepository(dirs.root)) fail(msg("implement-in-worktree-requires-git"));
   let session: Session;
   let promptArgs = flags.args;
 
@@ -601,20 +604,20 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
         kind: "in-place",
         id,
         command: name,
-        mainCheckout: dirs.main,
-        worktree: dirs.main,
+        mainCheckout: dirs.root,
+        worktree: dirs.root,
         createdAt: new Date().toISOString(),
       };
     } else {
       const worktree = join(dirs.worktrees, id);
       const branch = `pi/${id}`;
-      const baseCommit = git(dirs.main, ["rev-parse", "HEAD"]);
-      git(dirs.main, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
+      const baseCommit = git(dirs.root, ["rev-parse", "HEAD"]);
+      git(dirs.root, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
       session = {
         kind: "worktree",
         id,
         command: name,
-        mainCheckout: dirs.main,
+        mainCheckout: dirs.root,
         worktree,
         branch,
         baseCommit,
@@ -635,7 +638,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
       kind: "review",
       id,
       command: name,
-      mainCheckout: dirs.main,
+      mainCheckout: dirs.root,
       worktree,
       createdAt: new Date().toISOString(),
     };
@@ -644,7 +647,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
 
   sessionLog = join(dirs.sessions, `${sessionPrefix(session)}.log`);
   appendFileSync(sessionLog, "");
-  const prompt = composePrompt(command, session.worktree, promptArgs, flags);
+  const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
   const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
   for (const entry of command.output) {
     switch (entry.kind) {
@@ -655,7 +658,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
         emit(entry.text);
         break;
       case "shell":
-        emit(`${tracedShell(entry.shell, session.worktree)}\n`);
+        emit(`${tracedShell(entry.shell, session.worktree, dirs.root)}\n`);
         break;
       default: {
         const unknownEntry: never = entry;
@@ -814,45 +817,45 @@ async function view(project: string, values: string[]): Promise<void> {
 }
 
 function merge(project: string, id: string): void {
-  const { main, sessions } = sessionDirs(project);
+  const { root, sessions } = sessionDirs(project);
   const session = readSession(sessions, id);
   if (session.kind !== "worktree") fail(msg("session-no-mergeable-branch", { id }));
   if (rebaseInProgress(session.worktree)) fail(msg("session-rebase-in-progress", { id }));
   if (git(session.worktree, ["status", "--porcelain"])) {
     fail(msg("session-uncommitted-changes", { id, worktree: session.worktree }));
   }
-  const mainBranch = git(main, ["branch", "--show-current"]);
-  if (!mainBranch) fail(msg("main-not-on-branch"));
-  const mainHead = git(main, ["rev-parse", "HEAD"]);
-  if (session.mergeState.kind === "unrebased" || session.mergeState.onto !== mainHead) {
-    const rebase = spawnSync("git", ["rebase", mainBranch], { cwd: session.worktree, encoding: "utf8" });
+  const rootBranch = git(root, ["branch", "--show-current"]);
+  if (!rootBranch) fail(msg("project-not-on-branch"));
+  const rootHead = git(root, ["rev-parse", "HEAD"]);
+  if (session.mergeState.kind === "unrebased" || session.mergeState.onto !== rootHead) {
+    const rebase = spawnSync("git", ["rebase", rootBranch], { cwd: session.worktree, encoding: "utf8" });
     if (rebase.status !== 0) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
       fail(msg("rebase-stopped-with-conflicts", { conflicts, worktree: session.worktree, id: session.id }));
     }
-    if (mainHead !== session.baseCommit) {
-      session.mergeState = { kind: "rebased", onto: mainHead };
+    if (rootHead !== session.baseCommit) {
+      session.mergeState = { kind: "rebased", onto: rootHead };
       writeSession(sessions, session);
-      process.stdout.write(`${msg("rebased-onto-updated", { id, branch: mainBranch, worktree: session.worktree })}\n`);
+      process.stdout.write(`${msg("rebased-onto-updated", { id, branch: rootBranch, worktree: session.worktree })}\n`);
       return;
     }
   }
-  const rebasedOnto = session.mergeState.kind === "rebased" ? session.mergeState.onto : mainHead;
-  if (git(main, ["rev-parse", "HEAD"]) !== rebasedOnto) fail(msg("main-moved-after-rebase"));
+  const rebasedOnto = session.mergeState.kind === "rebased" ? session.mergeState.onto : rootHead;
+  if (git(root, ["rev-parse", "HEAD"]) !== rebasedOnto) fail(msg("project-moved-after-rebase"));
   if (git(session.worktree, ["rev-parse", "HEAD"]) === rebasedOnto) fail(msg("session-no-changes-to-merge", { id }));
-  git(main, ["merge", "--ff-only", session.branch]);
-  git(main, ["worktree", "remove", session.worktree]);
-  git(main, ["branch", "-d", session.branch]);
+  git(root, ["merge", "--ff-only", session.branch]);
+  git(root, ["worktree", "remove", session.worktree]);
+  git(root, ["branch", "-d", session.branch]);
   rmSync(sessionPath(sessions, id));
-  process.stdout.write(`${msg("merged", { id, branch: mainBranch })}\n`);
+  process.stdout.write(`${msg("merged", { id, branch: rootBranch })}\n`);
 }
 
 function discard(project: string, id: string): void {
-  const { main, sessions } = sessionDirs(project);
+  const { root, sessions } = sessionDirs(project);
   const session = readSession(sessions, id);
   if (session.kind === "worktree") {
-    git(main, ["worktree", "remove", "--force", session.worktree]);
-    git(main, ["branch", "-D", session.branch]);
+    git(root, ["worktree", "remove", "--force", session.worktree]);
+    git(root, ["branch", "-D", session.branch]);
   }
   rmSync(sessionPath(sessions, id));
   process.stdout.write(`${msg("discarded", { id })}\n`);

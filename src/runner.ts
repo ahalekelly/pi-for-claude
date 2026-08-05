@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 
 import { renderString } from "./core.ts";
 
@@ -16,9 +16,12 @@ export function git(cwd: string, args: string[]): string {
   return result.stdout.trim();
 }
 
-export function mainCheckout(projectDir: string): string {
+// The working tree you launch from is the project: a linked worktree keeps
+// its own .agents/ (sessions, plans, pi worktrees), so delegation from inside
+// a worktree stays inside it — nothing resolves up to the shared checkout.
+export function checkoutRoot(projectDir: string): string {
   const project = resolve(projectDir);
-  const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+  const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--show-toplevel"], {
     cwd: project,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -26,24 +29,16 @@ export function mainCheckout(projectDir: string): string {
   if (result.error) throw new Error(msg("could-not-run-git", { error: result.error.message }));
   if (result.status !== 0) {
     if (result.stderr.includes("not a git repository")) return project;
-    throw new Error(result.stderr.trim() || msg("git-command-failed", { args: "rev-parse --path-format=absolute --git-common-dir" }));
+    if (result.stderr.includes("must be run in a work tree")) throw new Error(msg("bare-repository-unsupported"));
+    throw new Error(result.stderr.trim() || msg("git-command-failed", { args: "rev-parse --path-format=absolute --show-toplevel" }));
   }
-  const commonDir = result.stdout.trim();
-  if (git(project, ["rev-parse", "--is-bare-repository"]) === "true") throw new Error(msg("bare-repository-unsupported"));
+  const toplevel = result.stdout.trim();
   // git rev-parse walks up from any subdirectory, so without this check a
   // launch from a directory that merely sits inside some checkout (e.g. a
   // scratch dir under a git-tracked home) silently adopts that repository as
   // the project.
-  const toplevel = git(project, ["rev-parse", "--path-format=absolute", "--show-toplevel"]);
   if (realpathSync(project) !== toplevel) throw new Error(msg("project-not-checkout-root", { project, root: toplevel }));
-  // A submodule's git dir lives under the superproject's .git/modules, with
-  // core.worktree pointing back at the checkout. (`git worktree list` cannot
-  // substitute here: for submodules it reports the git dir as the main
-  // worktree.)
-  const coreWorktree = spawnSync("git", ["-C", commonDir, "config", "core.worktree"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  if (coreWorktree.status === 0) return resolve(commonDir, coreWorktree.stdout.trim());
-  if (basename(commonDir) !== ".git") throw new Error(msg("unsupported-git-common-dir", { dir: commonDir }));
-  return dirname(commonDir);
+  return toplevel;
 }
 
 export function isGitRepository(project: string): boolean {
