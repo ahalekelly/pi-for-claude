@@ -9,9 +9,9 @@ session: new
 consult: |
   Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
 
-  Consult the orchestrator with `consult_orchestrator(question)`, which blocks for up to 10 minutes until the orchestrator answers. On timeout, proceed with your best judgment and flag the assumption in your summary.
+  `consult_orchestrator(question)` blocks up to 10 minutes for an answer; on timeout, proceed on best judgment and flag the assumption in your summary.
 
-  Consult when the plan is unclear, if you think a deviation from the plan would be warranted, when stuck (recurring errors or a non-converging approach), when a rebase conflict's right resolution isn't clear, or when multiple approaches seem viable but have tradeoffs. On most tasks, one consult before the approach crystallizes is enough. If your evidence points one way and the orchestrator's instructions another, surface the conflict ("I found X, you suggest Y") rather than silently switching.
+  Consult when the plan is unclear, a deviation seems warranted, you are stuck (recurring errors or a non-converging approach), a rebase conflict's right resolution isn't clear, or approaches have real tradeoffs. Usually one consult, before the approach crystallizes, is enough. If your evidence points one way and the orchestrator's instructions another, surface the conflict ("I found X, you suggest Y") rather than silently switching.
 output:
   - pi
   - shell: |
@@ -33,6 +33,6 @@ After you finish, the orchestrator reviews your commit and may resume this conve
 4. fast-forwards your commits onto it verbatim;
 5. deletes the worktree and branch — the conversation survives, the worktree does not.
 
-When done, do a thorough report on what you have done and any deviations from the plan or interesting findings. The orchestrator can only see your final message and the git status.
+Finish with a thorough report: what you did, deviations from the plan, and interesting findings. The orchestrator sees only your final message and the git status.
 
 $plan

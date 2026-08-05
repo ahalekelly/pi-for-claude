@@ -13,7 +13,7 @@ Features:
 - Built-in web research and browser automation tools
 - A simple format to save prompts and workflows. Separate model and sandbox settings for each saved prompt
 
-Each Pi session shows up as a "monitor" in the Claude Code status bar, because Claude is monitoring the session.
+Each Pi session shows up as a "monitor" in the Claude Code status bar.
 
 Add a Markdown file with the prompt header to prompts/ to create a new pi-for-claude command.
 
@@ -58,7 +58,7 @@ Claude writes the task plan in a Markdown file, then passes it to `run`:
 pi-for-claude run .agents/plans/fix-auth.md
 ```
 
-Pi reads the plan file and edits the current project directly. Pi's questions for Claude get sent to stdout, Claude uses `Monitor` to get alerted to these and respond in a specified file.
+Pi reads the plan file and edits the current project directly. Pi's questions for Claude go to stdout; Claude watches with `Monitor` and answers in the file the run names.
 
 `run` uses the `project-write` sandbox: Pi can edit project files, but it cannot write git metadata.
 
@@ -76,7 +76,7 @@ To resume the same conversation when Pi needs another pass:
 pi-for-claude resume fix-auth "Handle the failing edge-case test."
 ```
 
-In a non-git project, the directory you run the commands in identifies the project and its sessions. In a git project, run commands from the checkout root: pi-for-claude refuses to run from a subdirectory rather than adopt the enclosing repository as the project, which matters when a scratch directory happens to sit inside a larger checkout — unless the checkout gitignores that subdirectory, in which case pi-for-claude treats it as a standalone non-git project instead. The working tree you run from is the project, so launching from a linked worktree keeps that worktree's sessions, plans, and Pi worktrees inside it, and `merge` fast-forwards the branch that worktree has checked out.
+In a non-git project, the directory you run the commands in identifies the project and its sessions. In a git project, run commands from the checkout root: the working tree you run from is the project, so a linked worktree keeps its own sessions, plans, and Pi worktrees, and `merge` fast-forwards its checked-out branch. pi-for-claude refuses to run from a subdirectory of a checkout, except one the checkout gitignores, which it treats as a standalone non-git project.
 
 ## Running in an isolated worktree
 
@@ -94,9 +94,7 @@ Inspect and verify the worktree, then merge it:
 pi-for-claude merge fix-auth
 ```
 
-`merge` rebases the private branch onto the branch the project has checked out, fast-forwards that branch, and removes the worktree and branch. If it moved in the meantime, `merge` stops after rebasing so Claude can verify. Run `merge` again to finish.
-
-If a rebase conflicts, pi-for-claude reports the files and leaves the rebase for Claude to decide.
+`merge` rebases the private branch onto the branch the project has checked out, fast-forwards that branch, and removes the worktree and branch. If that branch moved in the meantime, `merge` stops after rebasing for re-verification; run it again to finish. If a rebase conflicts, pi-for-claude reports the files and leaves the rebase for Claude to resolve.
 
 Discard unwanted work instead:
 
