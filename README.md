@@ -76,7 +76,7 @@ To resume the same conversation when Pi needs another pass:
 pi-for-claude resume fix-auth "Handle the failing edge-case test."
 ```
 
-In a non-git project, the directory you run the commands in identifies the project and its sessions. In a git project, run commands from the checkout root: pi-for-claude refuses to run from a subdirectory rather than adopt the enclosing repository as the project, which matters when a scratch directory happens to sit inside a larger checkout.
+In a non-git project, the directory you run the commands in identifies the project and its sessions. In a git project, run commands from the checkout root: pi-for-claude refuses to run from a subdirectory rather than adopt the enclosing repository as the project, which matters when a scratch directory happens to sit inside a larger checkout. The working tree you run from is the project, so launching from a linked worktree keeps that worktree's sessions, plans, and Pi worktrees inside it, and `merge` fast-forwards the branch that worktree has checked out.
 
 ## Running in an isolated worktree
 
@@ -86,7 +86,7 @@ Use `implement-in-worktree` when you want to keep Pi's changes out of your curre
 pi-for-claude implement-in-worktree .agents/plans/fix-auth.md
 ```
 
-This command requires git. It creates branch `pi/fix-auth` and worktree `<main>/.agents/worktrees/fix-auth`. Pi works and commits on that private branch. The sandbox allows Pi to edit and commit only inside its session worktree.
+This command requires git. It creates branch `pi/fix-auth` and worktree `<project>/.agents/worktrees/fix-auth`. Pi works and commits on that private branch. The sandbox allows Pi to edit and commit only inside its session worktree.
 
 Inspect and verify the worktree, then merge it:
 
@@ -94,7 +94,7 @@ Inspect and verify the worktree, then merge it:
 pi-for-claude merge fix-auth
 ```
 
-`merge` rebases the private branch onto the current main branch, fast-forwards main, and removes the worktree and branch. If main changed, `merge` will stop after rebasing so Claude can verify. Run `merge` again to finish.
+`merge` rebases the private branch onto the branch the project has checked out, fast-forwards that branch, and removes the worktree and branch. If it moved in the meantime, `merge` stops after rebasing so Claude can verify. Run `merge` again to finish.
 
 If a rebase conflicts, pi-for-claude reports the files and leaves the rebase for Claude to decide.
 
@@ -180,4 +180,4 @@ All modes block configured secret paths, restrict command network access to conf
 
 The bundled web and browser tools make network requests directly from the agent runtime, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
 
-Session data lives under `<main>/.agents/sessions`. Each conversation's `.jsonl` file is its durable record. In git projects, pi-for-claude resolves this directory through the shared checkout so sessions survive worktree removal.
+Session data lives under `<project>/.agents/sessions`, where `<project>` is the working tree the command was launched from. Each conversation's `.jsonl` file is its durable record, kept outside the session worktree so it survives merge and discard.
