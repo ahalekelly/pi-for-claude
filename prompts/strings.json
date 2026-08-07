@@ -26,6 +26,7 @@
   "field-empty": "Prompt field '$field' must not be empty",
   "field-must-be-one-of": "Prompt field '$field' must be one of: $values",
   "frontmatter-not-closed": "Prompt frontmatter is not closed",
+  "fs-permission-denied-hint": "A permission error here usually means an operating-system sandbox (such as a sandboxed Claude Code Monitor) denied the write. The sandbox matches real paths, so a writable-path entry that names a symlinked location (for example ~/.claude-work, which resolves into ~/.agents/home/) does not cover the real directory. Relaunch outside the sandbox — 'nohup pi-for-claude <command> ... &' via unsandboxed background Bash — then follow the session with 'pi-for-claude watch <session>' in a Monitor.",
   "git-command-failed": "git $args failed",
   "handback-dirty": "Your worktree has uncommitted changes:\n\n$status\n\nCommit what belongs in your deliverable, and delete or gitignore the rest, then hand back with a clean tree.",
   "handback-rebase-warning": "WARNING: the session handed back with a rebase in progress — pi left the conflict resolution to you.\n\nConflicted files:\n$conflicts\n\nResolve them in $worktree or resume the session with instructions, then run 'git rebase --continue', re-verify, and merge.",

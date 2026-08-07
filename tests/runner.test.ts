@@ -1149,3 +1149,20 @@ test("run prints each consult question once with its answer path", async (t) => 
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 });
+
+test("a permission error creating session state explains the sandbox and the unsandboxed relaunch", () => {
+  const root = mkdtempSync("/tmp/pi-for-claude-eperm-");
+  chmodSync(root, 0o500);
+  try {
+    const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "sessions"], {
+      encoding: "utf8",
+      cwd: root,
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /EACCES|EPERM/);
+    assert.match(result.stderr, /Relaunch outside the sandbox/);
+    assert.match(result.stderr, /pi-for-claude watch <session>/);
+  } finally {
+    chmodSync(root, 0o700);
+  }
+});

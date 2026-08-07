@@ -953,6 +953,11 @@ main(process.argv.slice(2)).catch((error: unknown) => {
   let report = `${msg("error-prefix", { message: error instanceof Error ? error.message : String(error) })}\n`;
   if (resumableSessionId) report += `${msg("session-resume-hint", { id: resumableSessionId })}\n`;
   process.stderr.write(report);
+  // Filesystem permission errors reaching here are almost always an
+  // operating-system sandbox denying a session-state write (seatbelt matches
+  // real paths, so symlinked writable roots don't count); say what to do.
+  const code = error instanceof Error && "code" in error ? error.code : undefined;
+  if (code === "EPERM" || code === "EACCES") process.stderr.write(`${msg("fs-permission-denied-hint")}\n`);
   // Mirror the failure into the session log so `watch` settles with the real
   // error instead of timing out with "never settled".
   if (sessionLog) appendFileSync(sessionLog, `${report}${msg("session-failed")}\n`);
