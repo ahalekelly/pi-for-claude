@@ -38,7 +38,7 @@
     "@earendil-works/pi-tui": "^0.83.0",
     "agent-browser": "^0.33.1",
     "pi-agent-browser-native": "^0.2.72",
-    "pi-web-access": "^0.17.0",
+    "pi-web-access": "^0.17.1",
     "shell-quote": "1.10.0",
     "trash-cli": "7.2.0",
     "typebox": "1.1.38"
