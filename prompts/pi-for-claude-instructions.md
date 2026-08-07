@@ -2,7 +2,7 @@
 
 Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
-`implement-in-worktree` requires a git repository and creates a persistent worktree session under the launch checkout's `.agents/`; use it to run multiple agents in parallel. `run` edits the project directory in place and also works without git; use it for non-git directories and single-subagent work. Run commands from the project root: the working tree you launch from is the project — a linked worktree keeps its own sessions, pi worktrees, and merge target — and pi-for-claude refuses to run from a non-ignored subdirectory of a checkout. A gitignored subdirectory counts as a standalone non-git project, so scratch dirs like `~/.claude-work/jobs/...` work as-is.
+`implement-in-worktree` requires a git repository and creates a persistent worktree session under the launch checkout's `.agents/`; use it to run multiple agents in parallel. `run` edits the project directory in place and also works without git; use it for non-git directories and single-subagent work. Run commands from the project root: the working tree you launch from is the project — a linked worktree keeps its own sessions, pi worktrees, and merge target — and pi-for-claude refuses to run from a non-ignored subdirectory of a checkout. A gitignored subdirectory counts as a standalone non-git project, so scratch dirs like `~/.claude-work/jobs/...` resolve as-is — but prefer an unsandboxed launch there (see the exception in step 2): the Claude sandbox matches real paths, so a scratch dir reached through a symlink (`~/.claude-work` resolves into `~/.agents/home/`) is usually not writable under its real path, and a sandboxed Monitor launch fails at startup with EPERM.
 
 ## Worktree workflow
 
@@ -16,7 +16,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
    Monitor({ command: "pi-for-claude implement-in-worktree .agents/plans/<session>.md", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
-   Exception: Pi's locally-executing web tools (`agent_browser`, `fetch_content`) break inside the Claude sandbox, and Monitor is always sandboxed. Launch sessions that need them via unsandboxed background Bash (`nohup pi-for-claude run … &`), then attach a Monitor running `pi-for-claude watch <session>`, which follows the session's output and exits when the session settles. Provider-side `web_search` works sandboxed.
+   Exception: some sessions can't run inside the Claude sandbox, and Monitor is always sandboxed. Pi's locally-executing web tools (`agent_browser`, `fetch_content`) break there (provider-side `web_search` works sandboxed), and a project whose real path the sandbox can't write — such as a symlinked scratch dir like `~/.claude-work/jobs/...` — fails at startup with EPERM. Launch those sessions via unsandboxed background Bash (`nohup pi-for-claude run … &`), then attach a Monitor running `pi-for-claude watch <session>`, which follows the session's output and exits when the session settles.
 
 3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks up to ten minutes for your response in `<session>.answer.md`. The Monitor emits the question and answer-file path. Restate both in a user reply — the user cannot see Monitor event bodies. `--no-consult` runs never ask.
 
