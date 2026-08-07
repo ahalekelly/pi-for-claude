@@ -1166,3 +1166,39 @@ test("a permission error creating session state explains the sandbox and the uns
     chmodSync(root, 0o700);
   }
 });
+
+test("run's git output covers a checkout root but never the checkout enclosing a standalone project", (t) => {
+  const root = scratchRepo("pi-for-claude-standalone-output-");
+  const scratch = join(root, "scratch");
+  mkdirSync(scratch);
+  appendFileSync(join(root, ".gitignore"), "scratch/\n");
+  git(root, "add", ".gitignore");
+  git(root, "commit", "-m", "ignore scratch");
+  appendFileSync(join(root, "README.md"), "dirty\n");
+  const model = startModelServer(root, [{ kind: "text", text: "Done." }]);
+  t.after(model.stop);
+  const home = makePiForClaudeHome(root);
+  cpSync(join(import.meta.dirname, "../prompts/run.md"), join(home, "prompts", "run.md"));
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const env = { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: home };
+
+  writeFileSync(join(scratch, "task.md"), "Do the thing.\n");
+  const standalone = spawnSync(process.execPath, [cli, "run", "task.md", "--no-consult", "--model", "default"], {
+    encoding: "utf8",
+    cwd: scratch,
+    env,
+  });
+  assert.equal(standalone.status, 0, standalone.stderr);
+  assert.doesNotMatch(standalone.stdout, /README\.md/);
+  assert.doesNotMatch(standalone.stdout, /\+ git status/);
+
+  writeFileSync(join(root, "checkout-task.md"), "Do the thing.\n");
+  const checkout = spawnSync(process.execPath, [cli, "run", "checkout-task.md", "--no-consult", "--model", "default"], {
+    encoding: "utf8",
+    cwd: root,
+    env,
+  });
+  assert.equal(checkout.status, 0, checkout.stderr);
+  assert.match(checkout.stdout, /\+ git status --short/);
+  assert.match(checkout.stdout, /M README\.md/);
+});

@@ -15,8 +15,13 @@ consult: |
 output:
   - pi
   - shell: |
-      git status --short
-      git diff --stat
+      # A standalone project inside some unrelated checkout (e.g. a gitignored
+      # scratch dir) must not report that checkout's status, so run git only
+      # when the project directory is a work-tree root itself.
+      if [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; then
+        git status --short
+        git diff --stat
+      fi
 ---
 Implement the plan below. It is also on disk at $plan_path if you need to re-read it later.
 

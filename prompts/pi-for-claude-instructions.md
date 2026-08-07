@@ -36,7 +36,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 2. Launch `pi-for-claude run .agents/plans/<session>.md` in a Monitor; steer, queue, or interrupt as usual.
 
-3. When Pi finishes, the changes are shown with `git status` and `git diff` if a git repo is available. Use `resume` for follow-ups.
+3. When Pi finishes, the changes are shown with `git status` and `git diff` if the project directory is itself a git checkout; a standalone project (including a gitignored scratch dir inside some other repository) shows no git output. Use `resume` for follow-ups.
 
 4. Close with `pi-for-claude discard <session>`: it removes only session metadata and leaves project files in place; without a worktree there is no `merge`.
 
