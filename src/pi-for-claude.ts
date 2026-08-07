@@ -74,6 +74,7 @@ function msg(name: string, injections: Record<string, string> = {}): string {
 // state. emit() mirrors all session output into the log so `watch` can follow
 // a run this process's stdout doesn't reach (e.g. an unsandboxed nohup launch).
 let sessionLog: string | undefined;
+let resumableSessionId: string | undefined;
 function emit(text: string): void {
   process.stdout.write(text);
   if (sessionLog) appendFileSync(sessionLog, text);
@@ -388,9 +389,14 @@ async function sdkRun(
     lastEventAt = Date.now();
     if (event.type !== "message_end" || event.message.role !== "assistant") return;
     if (event.message.stopReason === "error") {
-      modelError = new Error(event.message.errorMessage || msg("pi-model-error-no-message"));
+      modelError = new Error(event.message.errorMessage ? msg("pi-model-error", { message: event.message.errorMessage }) : msg("pi-model-error-no-message"));
       return;
     }
+    // Pi auto-retries transient stream errors (rate limits, dropped
+    // WebSockets); a later successful assistant message means the run
+    // recovered, so only an error still standing when the session settles
+    // is fatal.
+    modelError = undefined;
     const text = assistantText(event.message);
     if (text) result = text;
   });
@@ -647,6 +653,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   }
 
   sessionLog = join(dirs.sessions, `${sessionPrefix(session)}.log`);
+  if (session.kind !== "review") resumableSessionId = session.id;
   appendFileSync(sessionLog, "");
   const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
   const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
@@ -872,9 +879,9 @@ function help(): void {
 }
 
 // The runner removes the control file before printing its final output, so
-// after it disappears the log may still be growing; the marker line is the
-// authoritative end-of-run signal and the grace period covers a crashed run
-// that will never write one.
+// after it disappears the log may still be growing; the settled and failed
+// marker lines are the authoritative end-of-run signals and the grace period
+// covers a killed run that never writes one.
 async function watchSession(project: string, values: string[]): Promise<void> {
   const id = values[0];
   if (!id || values.length > 1) fail(msg("watch-usage"));
@@ -882,7 +889,8 @@ async function watchSession(project: string, values: string[]): Promise<void> {
   const session = readSession(sessions, id);
   const log = join(sessions, `${sessionPrefix(session)}.log`);
   const control = join(sessions, `${id}.ctl`);
-  const marker = `${msg("session-settled")}\n`;
+  const settledMarker = `${msg("session-settled")}\n`;
+  const failedMarker = `${msg("session-failed")}\n`;
   let offset = 0;
   let gracePolls = 0;
   for (;;) {
@@ -893,7 +901,11 @@ async function watchSession(project: string, values: string[]): Promise<void> {
         offset = content.length;
         gracePolls = 0;
       }
-      if (content.endsWith(marker) && !existsSync(control)) return;
+      if (content.endsWith(settledMarker) && !existsSync(control)) return;
+      if (content.endsWith(failedMarker) && !existsSync(control)) {
+        process.exitCode = 1;
+        return;
+      }
     }
     if (existsSync(control)) {
       gracePolls = 0;
@@ -938,6 +950,11 @@ async function main(argv: string[]): Promise<void> {
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {
-  process.stderr.write(`${msg("error-prefix", { message: error instanceof Error ? error.message : String(error) })}\n`);
+  let report = `${msg("error-prefix", { message: error instanceof Error ? error.message : String(error) })}\n`;
+  if (resumableSessionId) report += `${msg("session-resume-hint", { id: resumableSessionId })}\n`;
+  process.stderr.write(report);
+  // Mirror the failure into the session log so `watch` settles with the real
+  // error instead of timing out with "never settled".
+  if (sessionLog) appendFileSync(sessionLog, `${report}${msg("session-failed")}\n`);
   process.exitCode = 1;
 });
