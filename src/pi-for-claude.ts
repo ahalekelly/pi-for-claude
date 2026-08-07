@@ -490,6 +490,14 @@ async function sdkRun(
   } finally {
     clearInterval(monitor);
     unsubscribe();
+    // dispose() marks every extension ctx stale without telling extensions, so
+    // a still-pending background task (e.g. a pi-web-access content fetch)
+    // would later touch its stale ctx and crash the process after a successful
+    // run. Emit session_shutdown first — the SDK's own AgentSessionRuntime
+    // teardown does the same — so extensions abort their pending work.
+    if (agentSession.extensionRunner.hasHandlers("session_shutdown")) {
+      await agentSession.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    }
     agentSession.dispose();
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     if (existsSync(control)) rmSync(control);
