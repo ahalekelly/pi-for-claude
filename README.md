@@ -133,7 +133,7 @@ Built-in commands do not call a model:
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the last assistant response
 - `view <session> [--live | --no-open]` — export the conversation to HTML and optionally keep it updated
-- `watch <session>` — replay and follow a session's output from its log; exits when the session settles
+- `watch <session>` — replay and follow a session's output from its log; exits when the session settles, or exits 1 when it fails
 - `steer <session> <message>` — redirect a live turn
 - `queue <session> <message>` — queue follow-up work
 - `interrupt <session>` — stop a live turn

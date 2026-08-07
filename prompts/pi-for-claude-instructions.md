@@ -49,7 +49,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 - `sessions` — list session ids, originating commands, and directories
 - `result <session>` — print the last completed assistant response
 - `view <session> [--no-open]` — export the conversation to HTML beside its JSONL and open it
-- `watch <session>` — replay and follow a session's output; exits when the session settles
+- `watch <session>` — replay and follow a session's output; exits when the session settles, or exits 1 when it fails
 - `steer <session> <message>` — deliver a message after the next tool call
 - `queue <session> <message>` — queue a message until the current agent task finishes
 - `interrupt <session>` — abort the active turn; the session remains resumable
