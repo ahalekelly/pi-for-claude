@@ -27,7 +27,7 @@
     "build": "tsc -p tsconfig.build.json && npm run copy-build-assets",
     "copy-build-assets": "node -e \"const fs=require('node:fs');fs.mkdirSync('dist/extensions/sandbox',{recursive:true});fs.copyFileSync('src/extensions/sandbox/sandbox.json','dist/extensions/sandbox/sandbox.json')\"",
     "prepare": "npm run build && npm run update-instructions",
-    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts",
+    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts tests/update.test.ts",
     "update-instructions": "node dist/update-instructions.js",
     "typecheck": "tsc --noEmit"
   },
@@ -36,9 +36,9 @@
     "@earendil-works/pi-ai": "^0.83.0",
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@earendil-works/pi-tui": "^0.83.0",
-    "agent-browser": "^0.33.1",
+    "agent-browser": "^0.33.2",
     "pi-agent-browser-native": "^0.2.72",
-    "pi-web-access": "^0.17.1",
+    "pi-web-access": "^0.18.0",
     "shell-quote": "1.10.0",
     "trash-cli": "7.2.0",
     "typebox": "1.1.38"

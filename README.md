@@ -130,6 +130,7 @@ Prompt commands call a model:
 Built-in commands do not call a model:
 
 - `setup` — configure the machine for pi-for-claude and check provider login
+- `update` — update Pi and all bundled and installed extensions, respecting npm's `min-release-age`
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the last assistant response
 - `view <session> [--live | --no-open]` — export the conversation to HTML and optionally keep it updated

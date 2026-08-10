@@ -15,6 +15,7 @@ import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
 import { setup } from "./setup.ts";
+import { update } from "./update.ts";
 
 type SessionFields = {
   id: string;
@@ -928,6 +929,10 @@ async function watchSession(project: string, values: string[]): Promise<void> {
 async function main(argv: string[]): Promise<void> {
   const [name, ...values] = argv;
   if (name === "setup") return setup(home);
+  if (name === "update") {
+    if (values.length > 0) fail(msg("update-usage"));
+    return update(home, process.cwd());
+  }
   if (!name || name === "help") return help();
   const project = process.cwd();
   if (name === "sessions") return listSessions(project);
