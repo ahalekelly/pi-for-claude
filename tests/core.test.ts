@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { parsePrompt, renderTemplate, resolveModel } from "../src/core.ts";
@@ -227,4 +229,9 @@ session: continue
 body`),
     /Invalid prompt lifecycle/,
   );
+});
+
+test("strings.json keys are sorted", () => {
+  const keys = Object.keys(JSON.parse(readFileSync(join(import.meta.dirname, "../prompts/strings.json"), "utf8")));
+  assert.deepEqual(keys, [...keys].sort());
 });
