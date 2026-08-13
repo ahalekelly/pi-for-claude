@@ -306,6 +306,16 @@ test("a proxied environment re-execs with NODE_USE_ENV_PROXY and still works", (
   assert.match(output, /implement-in-worktree <plan-file>/);
 });
 
+test("a launch whose dependencies are missing explains how to reinstall", () => {
+  const checkout = mkdtempSync(join(tmpdir(), "pi-for-claude-nodep-"));
+  cpSync(join(import.meta.dirname, "../src"), join(checkout, "src"), { recursive: true });
+
+  const result = spawnSync(process.execPath, [join(checkout, "src/pi-for-claude.ts"), "help"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Cannot find package 'typebox'/);
+  assert.match(result.stderr, /node_modules is out of date with the checkout at .* — run `npm install` there, then retry\./);
+});
+
 test("run creates an isolated worktree and sends the composed prompt through the SDK", (t) => {
   const root = scratchRepo("pi-for-claude-e2e-");
   writeFileSync(join(root, "fix-auth.md"), "Fix the auth flow.\n");
