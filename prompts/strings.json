@@ -16,7 +16,6 @@
   "could-not-run-git": "Could not run git: $error",
   "cwd-does-not-exist": "Working directory does not exist: $cwd",
   "discarded": "Discarded '$id'.",
-  "duplicate-session-metadata": "Found $count metadata files for session '$id'",
   "error-prefix": "pi-for-claude: $message",
   "expected-one-jsonl": "Expected one Pi JSONL for session '$id', found $count",
   "extension-load-failed": "Extension failed to load: $path: $error",

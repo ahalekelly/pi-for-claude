@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createConnection, createServer as createNetServer } from "node:net";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { resolveProject, sessionIdFromPlan } from "../src/runner.ts";
@@ -13,17 +13,15 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 const createdAt = "2026-01-01T00:00:00.000Z";
-const createdAtPrefix = "2026-01-01T00-00-00-000Z";
 
 function fixedSessionPath(sessions: string, id: string): string {
-  return join(sessions, `${createdAtPrefix}-${id}.pi-for-claude.json`);
+  return join(sessions, `${id}.pi-for-claude.json`);
 }
 
-function sessionArtifact(sessions: string, id: string, extension: "pi-for-claude.json"): string {
-  const pattern = new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-(.+)\\.${extension.replace(".", "\\.")}$`);
-  const files = readdirSync(sessions).filter((file) => pattern.exec(file)?.[1] === id);
-  assert.equal(files.length, 1);
-  return join(sessions, files[0]!);
+function sessionArtifact(sessions: string, id: string): string {
+  const path = fixedSessionPath(sessions, id);
+  assert.equal(existsSync(path), true);
+  return path;
 }
 
 test("resolveProject treats a linked worktree as its own project root", () => {
@@ -548,11 +546,10 @@ test("run edits a non-git project in place and discard preserves its files", (t)
   });
 
   const sessions = join(root, ".agents/sessions");
-  const recordPath = sessionArtifact(sessions, "change", "pi-for-claude.json");
+  const recordPath = sessionArtifact(sessions, "change");
   const record = JSON.parse(readFileSync(recordPath, "utf8"));
-  const prefix = record.createdAt.replaceAll(":", "-").replaceAll(".", "-");
-  assert.equal(basename(recordPath), `${prefix}-change.pi-for-claude.json`);
-  const log = readFileSync(join(sessions, `${prefix}-change.log`), "utf8");
+  assert.equal(recordPath, join(sessions, "change.pi-for-claude.json"));
+  const log = readFileSync(join(sessions, "change.log"), "utf8");
   assert.match(log, /Implemented in place\./);
   assert.match(log, /Session settled\.\n$/);
   assert.match(output, /Implemented in place\./);
@@ -580,7 +577,7 @@ test("run in a git project creates no branch or worktree", (t) => {
   });
 
   const sessions = join(root, ".agents/sessions");
-  const record = JSON.parse(readFileSync(sessionArtifact(sessions, "change", "pi-for-claude.json"), "utf8"));
+  const record = JSON.parse(readFileSync(sessionArtifact(sessions, "change"), "utf8"));
   assert.equal(record.kind, "in-place");
   assert.equal(record.worktree, realpathSync(root));
   assert.equal(git(root, "branch", "--list", "pi/change"), "");
@@ -606,7 +603,7 @@ test("a linked worktree is its own project: sessions, pi worktrees, and merge st
   });
 
   const worktree = join(linked, ".agents/worktrees/fix-auth");
-  const record = JSON.parse(readFileSync(sessionArtifact(join(linked, ".agents/sessions"), "fix-auth", "pi-for-claude.json"), "utf8"));
+  const record = JSON.parse(readFileSync(sessionArtifact(join(linked, ".agents/sessions"), "fix-auth"), "utf8"));
   assert.equal(record.mainCheckout, linked);
   assert.equal(record.baseCommit, git(linked, "rev-parse", "HEAD"));
   assert.equal(existsSync(join(root, ".agents")), false, "the shared checkout keeps no session state for a worktree launch");
@@ -648,32 +645,21 @@ test("resume rejects a review session", () => {
   assert.match(result.stderr, /read-only review session and cannot be resumed/);
 });
 
-test("plain session ids reject duplicate timestamped metadata", () => {
-  const root = scratchRepo("pi-for-claude-duplicate-session-");
+test("sessions are ordered by metadata creation time", () => {
+  const root = scratchRepo("pi-for-claude-session-order-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
     kind: "review",
-    id: "duplicate",
     command: "review",
     mainCheckout: root,
     worktree: root,
-    createdAt,
   };
-  writeFileSync(fixedSessionPath(sessions, record.id), JSON.stringify(record));
-  writeFileSync(join(sessions, "2026-01-02T00-00-00-000Z-duplicate.pi-for-claude.json"), JSON.stringify({ ...record, createdAt: "2026-01-02T00:00:00.000Z" }));
+  writeFileSync(fixedSessionPath(sessions, "older"), JSON.stringify({ ...record, id: "older", createdAt }));
+  writeFileSync(fixedSessionPath(sessions, "newer"), JSON.stringify({ ...record, id: "newer", createdAt: "2026-01-02T00:00:00.000Z" }));
 
-  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
-  const listed = spawnSync(process.execPath, [cli, "sessions"], { encoding: "utf8", cwd: root });
-  assert.equal(listed.status, 1);
-  assert.match(listed.stderr, /Found 2 metadata files for session 'duplicate'/);
-
-  const result = spawnSync(process.execPath, [cli, "discard", record.id], {
-    encoding: "utf8",
-    cwd: root,
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /Found 2 metadata files for session 'duplicate'/);
+  const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "sessions"], { encoding: "utf8", cwd: root });
+  assert.deepEqual(output.trim().split("\n").map((line) => line.split("\t")[0]), ["newer", "older"]);
 });
 
 test("plain session ids do not match a longer hyphenated id", () => {
@@ -698,7 +684,7 @@ test("session metadata requires a real canonical timestamp", () => {
   const root = scratchRepo("pi-for-claude-invalid-timestamp-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
-  const path = join(sessions, "2026-99-99T99-99-99-999Z-invalid.pi-for-claude.json");
+  const path = fixedSessionPath(sessions, "invalid");
   writeFileSync(
     path,
     JSON.stringify({ kind: "review", id: "invalid", command: "review", mainCheckout: root, worktree: root, createdAt: "2026-99-99T99:99:99.999Z" }),
@@ -798,7 +784,7 @@ test("failures before and during a run fail fast without burning the session id"
   assert.equal(missingAttachment.status, 1);
   assert.match(missingAttachment.stderr, /Attachment file does not exist/);
   assert.equal(existsSync(worktree), false);
-  assert.equal(readdirSync(sessions).some((file) => file.endsWith("-plan.pi-for-claude.json")), false);
+  assert.equal(existsSync(fixedSessionPath(sessions, "plan")), false);
 
   writeFileSync(join(root, "plan2.md"), "Do the thing.\n");
   const provider = run(model.env, "plan2.md");

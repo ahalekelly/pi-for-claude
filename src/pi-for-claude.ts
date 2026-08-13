@@ -109,15 +109,9 @@ function sessionDirs(project: string) {
   return { root, sessions, worktrees, kind: resolved.kind };
 }
 
-function sessionPrefix(session: Session): string {
-  return `${session.createdAt.replaceAll(":", "-").replaceAll(".", "-")}-${session.id}`;
-}
-
 function findSessionPath(sessions: string, id: string): string | undefined {
-  const pattern = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-(.+)\.pi-for-claude\.json$/;
-  const files = readdirSync(sessions).filter((file) => pattern.exec(file)?.[1] === id);
-  if (files.length > 1) fail(msg("duplicate-session-metadata", { id, count: String(files.length) }));
-  return files[0] ? join(sessions, files[0]) : undefined;
+  const path = join(sessions, `${id}.pi-for-claude.json`);
+  return existsSync(path) ? path : undefined;
 }
 
 function sessionPath(sessions: string, id: string): string {
@@ -156,7 +150,7 @@ function readSessionFile(path: string): Session {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(session.id) || Number.isNaN(timestamp) || new Date(timestamp).toISOString() !== session.createdAt) {
     fail(msg("malformed-session-metadata", { path }));
   }
-  if (basename(path) !== `${sessionPrefix(session)}.pi-for-claude.json`) fail(msg("malformed-session-metadata", { path }));
+  if (basename(path) !== `${session.id}.pi-for-claude.json`) fail(msg("malformed-session-metadata", { path }));
   return session;
 }
 
@@ -168,7 +162,7 @@ function readSession(sessions: string, id: string): Session {
 }
 
 function writeSession(sessions: string, session: Session): void {
-  writeFileSync(join(sessions, `${sessionPrefix(session)}.pi-for-claude.json`), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(sessions, `${session.id}.pi-for-claude.json`), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
 }
 
 function parseFlags(values: string[]): Flags {
@@ -652,7 +646,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     writeSession(dirs.sessions, session);
   }
 
-  sessionLog = join(dirs.sessions, `${sessionPrefix(session)}.log`);
+  sessionLog = join(dirs.sessions, `${session.id}.log`);
   if (session.kind !== "review") resumableSessionId = session.id;
   appendFileSync(sessionLog, "");
   const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
@@ -718,11 +712,6 @@ function listSessions(project: string): void {
   const records = readdirSync(sessions)
     .filter((file) => file.endsWith(".pi-for-claude.json"))
     .map((file) => readSessionFile(join(sessions, file)));
-  const duplicate = records.find((record) => records.filter((candidate) => candidate.id === record.id).length > 1);
-  if (duplicate) {
-    const count = records.filter((record) => record.id === duplicate.id).length;
-    fail(msg("duplicate-session-metadata", { id: duplicate.id, count: String(count) }));
-  }
   for (const record of records.sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
     process.stdout.write(`${record.id}\t${record.command}\t${record.worktree}\n`);
   }
@@ -886,8 +875,8 @@ async function watchSession(project: string, values: string[]): Promise<void> {
   const id = values[0];
   if (!id || values.length > 1) fail(msg("watch-usage"));
   const { sessions } = sessionDirs(project);
-  const session = readSession(sessions, id);
-  const log = join(sessions, `${sessionPrefix(session)}.log`);
+  readSession(sessions, id);
+  const log = join(sessions, `${id}.log`);
   const control = join(sessions, `${id}.ctl`);
   const settledMarker = `${msg("session-settled")}\n`;
   const failedMarker = `${msg("session-failed")}\n`;
