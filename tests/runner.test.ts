@@ -128,9 +128,7 @@ description: Implement a plan
 argument-hint: "<plan-file>"
 model: default
 thinking: high
-sandbox: worktree-write
-worktree: create
-session: new
+mode: worktree
 consult: Ask when blocked
 input:
   - shell: |
@@ -163,9 +161,7 @@ description: Implement a plan in place
 argument-hint: "<plan-file>"
 model: default
 thinking: high
-sandbox: project-write
-worktree: none
-session: new
+mode: in-place
 consult: Ask when blocked
 ---
 Make the requested changes.
@@ -179,10 +175,7 @@ description: Review a project
 argument-hint: "[focus]"
 model: default
 thinking: high
-sandbox: read-only
-worktree: none
-session: new
-consult: Ask when blocked
+mode: review
 ---
 Review the project.
 `,
@@ -194,9 +187,7 @@ description: Continue a session
 argument-hint: "<session> <follow-up>"
 model: default
 thinking: high
-sandbox: worktree-write
-worktree: reuse
-session: continue
+mode: resume
 consult: Ask when blocked
 ---
 $@

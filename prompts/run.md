@@ -3,9 +3,7 @@ description: Implement a plan in the project directory
 argument-hint: "<plan-file>"
 model: best
 thinking: medium
-sandbox: project-write
-worktree: none
-session: new
+mode: in-place
 consult: |
   Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
 

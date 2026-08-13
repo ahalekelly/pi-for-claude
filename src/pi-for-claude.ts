@@ -507,7 +507,7 @@ function composePrompt(command: PromptCommand, worktree: string, project: string
   injections.base = flags.base;
   injections.project = project;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
-  if (command.lifecycle === "create" || command.lifecycle === "in-place") {
+  if (command.mode === "worktree" || command.mode === "in-place") {
     const plan = args[0];
     if (!plan) fail(msg("plan-file-required"));
     const planPath = resolve(plan);
@@ -515,8 +515,8 @@ function composePrompt(command: PromptCommand, worktree: string, project: string
     injections.plan = readFileSync(planPath, "utf8");
   }
   const readFiles = (paths: string[]) => paths.map((path) => readFileSync(resolve(path), "utf8")).join("\n\n");
-  const guidance = command.lifecycle === "direct" ? "" : flags.consult ? command.consult : msg("no-consult-guidance");
-  const templateArgs = command.lifecycle === "create" || command.lifecycle === "in-place" ? args.slice(1) : args;
+  const guidance = command.mode === "review" ? "" : flags.consult ? command.consult : msg("no-consult-guidance");
+  const templateArgs = command.mode === "worktree" || command.mode === "in-place" ? args.slice(1) : args;
   const prompt = [readFiles(flags.prepend), guidance, renderTemplate(command.body, templateArgs, injections), readFiles(flags.append)]
     .filter(Boolean)
     .join("\n\n");
@@ -588,11 +588,11 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
   const dirs = sessionDirs(project);
-  if (command.lifecycle === "create" && dirs.kind !== "checkout") fail(msg("implement-in-worktree-requires-git"));
+  if (command.mode === "worktree" && dirs.kind !== "checkout") fail(msg("implement-in-worktree-requires-git"));
   let session: Session;
   let promptArgs = flags.args;
 
-  if (command.lifecycle === "reuse") {
+  if (command.mode === "resume") {
     const id = flags.args[0];
     if (!id) fail(msg("requires-session-id", { name }));
     session = readSession(dirs.sessions, id);
@@ -603,7 +603,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     // session under the same id instead of resuming.
     const conversations = piSessionFiles(dirs.sessions, id);
     if (conversations.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(conversations.length) }));
-  } else if (command.lifecycle === "create" || command.lifecycle === "in-place") {
+  } else if (command.mode === "worktree" || command.mode === "in-place") {
     const plan = flags.args[0];
     if (!plan) fail(msg("requires-plan-file", { name }));
     if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
@@ -612,7 +612,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     // A merged or discarded session leaves its conversation JSONL behind, which
     // permanently reserves the name; only "resume it" would be a lie here.
     if (piSessionFiles(dirs.sessions, id).length > 0) fail(msg("session-name-burned", { id }));
-    if (command.lifecycle === "in-place") {
+    if (command.mode === "in-place") {
       session = {
         kind: "in-place",
         id,

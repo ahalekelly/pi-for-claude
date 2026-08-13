@@ -3,9 +3,7 @@ description: Implement a plan in a fresh worktree
 argument-hint: "<plan-file>"
 model: default
 thinking: high
-sandbox: worktree-write
-worktree: create
-session: new
+mode: worktree
 consult: |
   Use consult_orchestrator when a missing decision would materially change the implementation; otherwise make the most conservative in-scope assumption and report it.
 

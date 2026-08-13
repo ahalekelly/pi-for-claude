@@ -11,9 +11,7 @@ description: Implement a plan
 argument-hint: "<plan-file>"
 model: default
 thinking: high
-sandbox: worktree-write
-worktree: create
-session: new
+mode: worktree
 consult: Ask when blocked
 inject:
   branch: git branch --show-current
@@ -45,7 +43,7 @@ Implement $plan on $branch.
     argumentHint: "<plan-file>",
     model: "default",
     thinking: { kind: "prompt", level: "high" },
-    lifecycle: "create",
+    mode: "worktree",
     sandbox: "worktree-write",
     consult: "Ask when blocked",
     inject: { branch: "git branch --show-current" },
@@ -78,9 +76,7 @@ description: Implement in place
 argument-hint: "<plan-file>"
 model: default
 thinking: high
-sandbox: project-write
-worktree: none
-session: new
+mode: in-place
 consult: Ask when blocked
 ---
 $plan
@@ -90,7 +86,7 @@ $plan
       argumentHint: "<plan-file>",
       model: "default",
       thinking: { kind: "prompt", level: "high" },
-      lifecycle: "in-place",
+      mode: "in-place",
       sandbox: "project-write",
       consult: "Ask when blocked",
       inject: {},
@@ -107,9 +103,7 @@ description: Implement in place
 argument-hint: "<plan-file>"
 model: default
 thinking: high
-sandbox: project-write
-worktree: none
-session: new
+mode: in-place
 consult: |
   Ask when blocked.
 
@@ -117,14 +111,10 @@ consult: |
 ---
 $plan
 `);
-  assert.equal(command.lifecycle, "in-place");
-  if (command.lifecycle === "in-place") {
-    assert.equal(command.consult, "Ask when blocked.\n\nConsult when the plan is unclear.");
+  assert.equal(command.mode, "in-place");
+  if (command.mode === "in-place") {
+    assert.equal(command.consult, "Ask when blocked.\n\nConsult when the plan is unclear.\n");
   }
-  assert.throws(
-    () => parsePrompt("---\ndescription: test\nconsult: |\n---\nbody"),
-    /consult.*empty/,
-  );
 });
 
 test("renderTemplate expands pi arguments and injected values", () => {
@@ -199,36 +189,22 @@ test("resolveModel validates every configured label", () => {
   assert.throws(() => resolveModel("empty", "high", { empty: {} }, []), /provider\/model id/);
 });
 
-test("parsePrompt rejects unknown fields and invalid states", () => {
-  assert.throws(() => parsePrompt("---\ndescription: test\nsurprise: no\n---\nbody"), /Unknown prompt field/);
-  assert.throws(
-    () =>
-      parsePrompt(`---
+test("parsePrompt rejects malformed frontmatter", () => {
+  const valid = `---
 description: test
 argument-hint: none
 model: default
 thinking: high
-sandbox: unsafe
-worktree: none
-session: new
+mode: worktree
+consult: Ask when blocked
 ---
-body`),
-    /Prompt field 'sandbox' must be one of/,
-  );
-  assert.throws(
-    () =>
-      parsePrompt(`---
-description: test
-argument-hint: none
-model: default
-thinking: high
-sandbox: worktree-write
-worktree: create
-session: continue
----
-body`),
-    /Invalid prompt lifecycle/,
-  );
+body`;
+  assert.throws(() => parsePrompt(valid.replace("consult:", "surprise:")), /surprise.*additional properties/);
+  assert.throws(() => parsePrompt(valid.replace("description: test\n", "")), /description.*required/);
+  assert.throws(() => parsePrompt(valid.replace("mode: worktree", "mode: unsafe")), /mode.*one of/);
+  assert.throws(() => parsePrompt(valid.replace("model: default", "model: default\nmodel: best")), /Map keys must be unique/);
+  assert.throws(() => parsePrompt(valid.replace("consult: Ask when blocked\n", "")), /worktree.*requires a consult field/);
+  assert.throws(() => parsePrompt(valid.replace("mode: worktree", "mode: review")), /review.*must not contain a consult field/);
 });
 
 test("strings.json keys are sorted", () => {

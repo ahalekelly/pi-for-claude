@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { Type, type Static } from "typebox";
+import { Check, Errors } from "typebox/value";
+import YAML from "yaml";
+
 export const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof thinkingLevels)[number];
 
@@ -23,8 +27,6 @@ function msg(name: string, injections: Record<string, string> = {}): string {
 type ContentEntry = { kind: "text"; text: string } | { kind: "shell"; shell: string };
 type InputEntry = { kind: "prompt" } | ContentEntry;
 type OutputEntry = { kind: "pi" } | ContentEntry;
-type Sequence = { kind: "input"; entries: InputEntry[] } | { kind: "output"; entries: OutputEntry[] };
-
 type PromptFields = {
   description: string;
   argumentHint: string;
@@ -38,77 +40,32 @@ type PromptFields = {
 
 export type PromptCommand = PromptFields &
   (
-    | { lifecycle: "create"; sandbox: "worktree-write"; consult: string }
-    | { lifecycle: "reuse"; sandbox: "worktree-write"; consult: string }
-    | { lifecycle: "in-place"; sandbox: "project-write"; consult: string }
-    | { lifecycle: "direct"; sandbox: "read-only" }
+    | { mode: "worktree"; sandbox: "worktree-write"; consult: string }
+    | { mode: "resume"; sandbox: "worktree-write"; consult: string }
+    | { mode: "in-place"; sandbox: "project-write"; consult: string }
+    | { mode: "review"; sandbox: "read-only" }
   );
 
-const rootFields = new Set([
-  "description",
-  "argument-hint",
-  "model",
-  "thinking",
-  "sandbox",
-  "worktree",
-  "session",
-  "consult",
-  "inject",
-  "input",
-  "output",
+const contentEntrySchema = Type.Union([
+  Type.Object({ text: Type.String() }, { additionalProperties: false }),
+  Type.Object({ shell: Type.String() }, { additionalProperties: false }),
 ]);
-
-function scalar(value: string, field: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error(msg("field-empty", { field }));
-  if (trimmed.startsWith('"')) {
-    if (!trimmed.endsWith('"')) throw new Error(msg("unterminated-quote", { field }));
-    return JSON.parse(trimmed) as string;
-  }
-  if (trimmed.startsWith("'")) {
-    if (!trimmed.endsWith("'")) throw new Error(msg("unterminated-quote", { field }));
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
+const promptSchema = Type.Object({
+  description: Type.String(),
+  "argument-hint": Type.String(),
+  model: Type.String(),
+  thinking: Type.Optional(Type.Enum(thinkingLevels)),
+  mode: Type.Enum(["worktree", "resume", "in-place", "review"]),
+  consult: Type.Optional(Type.String()),
+  inject: Type.Optional(Type.Record(Type.String(), Type.String())),
+  input: Type.Optional(Type.Array(Type.Union([Type.Literal("prompt"), contentEntrySchema]))),
+  output: Type.Optional(Type.Array(Type.Union([Type.Literal("pi"), contentEntrySchema]))),
+}, { additionalProperties: false });
+type PromptSource = Static<typeof promptSchema>;
 
 function enumValue<const Values extends readonly string[]>(field: string, value: string, values: Values): Values[number] {
   if (!values.includes(value)) throw new Error(msg("field-must-be-one-of", { field, values: values.join(", ") }));
   return value as Values[number];
-}
-
-function parseSequence(lines: string[], index: number, end: number, sequence: Sequence): number {
-  const marker = sequence.kind === "input" ? "prompt" : "pi";
-  while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
-    const entry = lines[index + 1]!;
-    if (!entry.trim()) {
-      index += 1;
-      continue;
-    }
-    if (entry === `  - ${marker}`) {
-      if (sequence.kind === "input") sequence.entries.push({ kind: "prompt" });
-      else sequence.entries.push({ kind: "pi" });
-      index += 1;
-      continue;
-    }
-    const match = /^  - (text|shell): \|$/.exec(entry);
-    if (!match) throw new Error(msg("malformed-sequence-entry", { field: sequence.kind, entry }));
-    const kind = match[1] as "text" | "shell";
-    const block: string[] = [];
-    index += 1;
-    while (index + 1 < end && (lines[index + 1]!.startsWith("      ") || !lines[index + 1]!.trim())) {
-      const blockLine = lines[index + 1]!;
-      block.push(blockLine.trim() ? blockLine.slice(6) : "");
-      index += 1;
-    }
-    if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("sequence-entry-empty", { field: sequence.kind, kind }));
-    const content = `${block.join("\n")}\n`;
-    sequence.entries.push(kind === "text" ? { kind, text: content } : { kind, shell: content });
-  }
-  if (sequence.entries.filter((entry) => entry.kind === marker).length !== 1) {
-    throw new Error(msg("sequence-requires-one-marker", { field: sequence.kind, marker }));
-  }
-  return index;
 }
 
 export function parsePrompt(source: string): PromptCommand {
@@ -117,95 +74,72 @@ export function parsePrompt(source: string): PromptCommand {
   const end = lines.indexOf("---", 1);
   if (end === -1) throw new Error(msg("frontmatter-not-closed"));
 
-  const values = new Map<string, string>();
-  const inject: Record<string, string> = {};
-  const input: PromptFields["input"] = [];
-  const output: PromptFields["output"] = [];
+  let value: unknown;
+  try {
+    value = YAML.parse(lines.slice(1, end).join("\n"));
+  } catch (error) {
+    throw new Error(msg("prompt-frontmatter-yaml-invalid", { error: error instanceof Error ? error.message : String(error) }));
+  }
+  if (!Check(promptSchema, value)) {
+    const error = Errors(promptSchema, value)[0]!;
+    const field = error.keyword === "required"
+      ? error.params.requiredProperties[0]!
+      : error.keyword === "additionalProperties"
+        ? error.params.additionalProperties[0]!
+        : error.instancePath.slice(1).replaceAll("/", ".") || "frontmatter";
+    throw new Error(msg("prompt-frontmatter-invalid", { field, problem: error.message }));
+  }
+  const prompt: PromptSource = value;
 
-  for (let index = 1; index < end; index += 1) {
-    const line = lines[index]!;
-    if (!line.trim()) continue;
-    if (line.startsWith(" ")) throw new Error(msg("unexpected-indentation", { line }));
-
-    const separator = line.indexOf(":");
-    if (separator === -1) throw new Error(msg("malformed-frontmatter-line", { line }));
-    const field = line.slice(0, separator);
-    const rawValue = line.slice(separator + 1).trim();
-    if (!rootFields.has(field)) throw new Error(msg("unknown-prompt-field", { field }));
-    if (values.has(field)) throw new Error(msg("duplicate-prompt-field", { field }));
-
-    if (field === "inject") {
-      if (rawValue) throw new Error(msg("inject-must-be-map"));
-      values.set(field, "map");
-      while (index + 1 < end && lines[index + 1]!.startsWith("  ")) {
-        const entry = lines[index + 1]!;
-        if (entry.startsWith("   ")) throw new Error(msg("malformed-inject-indentation", { entry }));
-        const entrySeparator = entry.indexOf(":", 2);
-        if (entrySeparator === -1) throw new Error(msg("malformed-inject-entry", { entry }));
-        const name = entry.slice(2, entrySeparator);
-        if (!/^[a-z][a-z0-9_]*$/.test(name)) throw new Error(msg("invalid-injection-name", { name }));
-        if (name in inject) throw new Error(msg("duplicate-injection", { name }));
-        inject[name] = scalar(entry.slice(entrySeparator + 1), `inject.${name}`);
-        index += 1;
-      }
-      continue;
+  for (const name of Object.keys(prompt.inject ?? {})) {
+    if (!/^[a-z][a-z0-9_]*$/.test(name)) throw new Error(msg("invalid-injection-name", { name }));
+  }
+  const inputSource = prompt.input ?? ["prompt"];
+  if (inputSource.filter((entry) => entry === "prompt").length !== 1) {
+    throw new Error(msg("sequence-requires-one-marker", { field: "input", marker: "prompt" }));
+  }
+  const outputSource = prompt.output ?? ["pi"];
+  if (outputSource.filter((entry) => entry === "pi").length !== 1) {
+    throw new Error(msg("sequence-requires-one-marker", { field: "output", marker: "pi" }));
+  }
+  for (const [field, entries] of [["input", inputSource], ["output", outputSource]] as const) {
+    for (const entry of entries) {
+      if (typeof entry === "string") continue;
+      const kind = "text" in entry ? "text" : "shell";
+      const content = "text" in entry ? entry.text : entry.shell;
+      if (!content.trim()) throw new Error(msg("sequence-entry-empty", { field, kind }));
     }
-
-    if (field === "input" || field === "output") {
-      if (rawValue) throw new Error(msg("sequence-must-be-list", { field }));
-      values.set(field, "list");
-      index = parseSequence(lines, index, end, field === "input" ? { kind: field, entries: input } : { kind: field, entries: output });
-      continue;
-    }
-
-    if (field === "consult" && rawValue === "|") {
-      const block: string[] = [];
-      while (index + 1 < end && (lines[index + 1]!.startsWith("  ") || !lines[index + 1]!.trim())) {
-        const blockLine = lines[index + 1]!;
-        block.push(blockLine.trim() ? blockLine.slice(2) : "");
-        index += 1;
-      }
-      if (!block.some((blockLine) => blockLine.trim())) throw new Error(msg("field-empty", { field }));
-      values.set(field, block.join("\n").trimEnd());
-      continue;
-    }
-
-    values.set(field, scalar(rawValue, field));
   }
 
-  const required = (field: string): string => {
-    const value = values.get(field);
-    if (!value) throw new Error(msg("missing-prompt-field", { field }));
-    return value;
-  };
-
-  const sandbox = enumValue("sandbox", required("sandbox"), ["worktree-write", "project-write", "read-only"] as const);
-  const worktree = enumValue("worktree", required("worktree"), ["create", "reuse", "none"] as const);
-  const session = enumValue("session", required("session"), ["new", "continue"] as const);
-  const lifecycle = `${sandbox}:${worktree}:${session}`;
+  const input: InputEntry[] = inputSource.map((entry) => {
+    if (entry === "prompt") return { kind: "prompt" };
+    if ("text" in entry) return { kind: "text", text: `${entry.text.trimEnd()}\n` };
+    return { kind: "shell", shell: `${entry.shell.trimEnd()}\n` };
+  });
+  const output: OutputEntry[] = outputSource.map((entry) => {
+    if (entry === "pi") return { kind: "pi" };
+    if ("text" in entry) return { kind: "text", text: `${entry.text.trimEnd()}\n` };
+    return { kind: "shell", shell: `${entry.shell.trimEnd()}\n` };
+  });
   const fields: PromptFields = {
-    description: required("description"),
-    argumentHint: required("argument-hint"),
-    model: required("model"),
-    thinking: values.has("thinking")
-      ? { kind: "prompt", level: enumValue("thinking", required("thinking"), thinkingLevels) }
-      : { kind: "model-default" },
-    inject,
-    input: values.has("input") ? input : [{ kind: "prompt" }],
-    output: values.has("output") ? output : [{ kind: "pi" }],
+    description: prompt.description,
+    argumentHint: prompt["argument-hint"],
+    model: prompt.model,
+    thinking: prompt.thinking === undefined ? { kind: "model-default" } : { kind: "prompt", level: prompt.thinking },
+    inject: prompt.inject ?? {},
+    input,
+    output,
     body: lines.slice(end + 1).join("\n"),
   };
-  if (lifecycle === "worktree-write:create:new") {
-    return { ...fields, lifecycle: "create", sandbox: "worktree-write", consult: required("consult") };
+
+  if (prompt.mode === "review") {
+    if (prompt.consult !== undefined) throw new Error(msg("review-consult-forbidden"));
+    return { ...fields, mode: prompt.mode, sandbox: "read-only" };
   }
-  if (lifecycle === "worktree-write:reuse:continue") {
-    return { ...fields, lifecycle: "reuse", sandbox: "worktree-write", consult: required("consult") };
-  }
-  if (lifecycle === "project-write:none:new") {
-    return { ...fields, lifecycle: "in-place", sandbox: "project-write", consult: required("consult") };
-  }
-  if (lifecycle === "read-only:none:new") return { ...fields, lifecycle: "direct", sandbox: "read-only" };
-  throw new Error(msg("invalid-prompt-lifecycle", { sandbox, worktree, session }));
+  if (prompt.consult === undefined) throw new Error(msg("mode-requires-consult", { mode: prompt.mode }));
+  if (prompt.mode === "worktree") return { ...fields, mode: prompt.mode, sandbox: "worktree-write", consult: prompt.consult };
+  if (prompt.mode === "resume") return { ...fields, mode: prompt.mode, sandbox: "worktree-write", consult: prompt.consult };
+  return { ...fields, mode: prompt.mode, sandbox: "project-write", consult: prompt.consult };
 }
 
 export function renderTemplate(body: string, args: string[], injections: Record<string, string>): string {
