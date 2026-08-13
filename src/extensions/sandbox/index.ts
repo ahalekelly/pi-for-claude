@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import {
@@ -17,45 +17,47 @@ import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.t
 
 type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
 
+const policy = {
+  network: {
+    allowedDomains: [
+      "api.github.com",
+      "github.com",
+      "*.github.com",
+      "npmjs.org",
+      "*.npmjs.org",
+      "pypi.org",
+      "*.pypi.org",
+    ],
+    deniedDomains: [],
+  },
+  filesystem: {
+    denyRead: [
+      "~/.agents/secrets.env",
+      "~/.secrets.env",
+      "~/.ssh",
+      "~/.aws",
+      "~/.gnupg",
+      "~/.config/gcloud",
+    ],
+    allowWrite: [".", "/tmp/claude", "~/.Trash", "~/.local/share/Trash"],
+    denyWrite: [
+      ".git",
+      "config.worktree",
+      "commondir",
+      "gitdir",
+      "~/.npm/_logs/**",
+      "~/.claude/debug/**",
+      ".env",
+      ".env.*",
+      "*.pem",
+      "*.key",
+    ],
+  },
+} satisfies Policy;
+
 const stringsPath = join(import.meta.dirname, "../../..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
-}
-
-function stringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry)) {
-    throw new Error(msg("sandbox-field-not-string-array", { field }));
-  }
-  return value;
-}
-
-function loadPolicy(readOnly: boolean): Policy {
-  const path = join(import.meta.dirname, "sandbox.json");
-  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(msg("malformed-sandbox-policy", { path }));
-  const source = value as Record<string, unknown>;
-  if (!Object.keys(source).every((key) => key === "network" || key === "filesystem")) throw new Error(msg("unknown-sandbox-policy-field", { path }));
-  if (!source.network || typeof source.network !== "object" || Array.isArray(source.network)) throw new Error(msg("malformed-sandbox-network-policy", { path }));
-  if (!source.filesystem || typeof source.filesystem !== "object" || Array.isArray(source.filesystem)) throw new Error(msg("malformed-sandbox-filesystem-policy", { path }));
-  const network = source.network as Record<string, unknown>;
-  const filesystem = source.filesystem as Record<string, unknown>;
-  if (!Object.keys(network).every((key) => key === "allowedDomains" || key === "deniedDomains")) throw new Error(msg("unknown-sandbox-network-field", { path }));
-  if (!Object.keys(filesystem).every((key) => key === "denyRead" || key === "allowWrite" || key === "denyWrite")) {
-    throw new Error(msg("unknown-sandbox-filesystem-field", { path }));
-  }
-  return {
-    network: {
-      allowedDomains: stringArray(network.allowedDomains, "network.allowedDomains"),
-      deniedDomains: stringArray(network.deniedDomains, "network.deniedDomains"),
-    },
-    filesystem: {
-      denyRead: stringArray(filesystem.denyRead, "filesystem.denyRead"),
-      allowWrite: readOnly
-        ? ["/tmp/claude", "~/.Trash", "~/.local/share/Trash"]
-        : stringArray(filesystem.allowWrite, "filesystem.allowWrite"),
-      denyWrite: stringArray(filesystem.denyWrite, "filesystem.denyWrite"),
-    },
-  };
 }
 
 // Git state pi may write, all scoped to its own session: the linked worktree's
@@ -155,7 +157,16 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   const mode = process.env.PI_FOR_CLAUDE_SANDBOX_MODE;
   if (mode !== "worktree-write" && mode !== "project-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
   const readOnly = mode === "read-only";
-  const policy = loadPolicy(readOnly);
+  const runtimePolicy: Policy = {
+    network: policy.network,
+    filesystem: {
+      denyRead: [...policy.filesystem.denyRead],
+      allowWrite: readOnly
+        ? ["/tmp/claude", "~/.Trash", "~/.local/share/Trash"]
+        : [...policy.filesystem.allowWrite],
+      denyWrite: [...policy.filesystem.denyWrite],
+    },
+  };
   const gitPaths = mode === "worktree-write" ? gitPolicyPaths(cwd) : { allow: [], deny: [] };
   const auth = agentPaths().realAuth;
   // The sandbox runtime points the child's TMPDIR at this directory (same
@@ -164,10 +175,10 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   // two steps every TMPDIR-respecting tool (python tempfile, node os.tmpdir)
   // fails, and mktemp silently returns "" so `cat $tmp` hangs on stdin.
   const tmpdir = process.env.CLAUDE_CODE_TMPDIR || process.env.CLAUDE_TMPDIR || "/tmp/claude";
-  policy.filesystem.denyRead.push(auth);
-  policy.filesystem.allowWrite.push(tmpdir, ...gitPaths.allow);
-  policy.filesystem.denyWrite.push(auth, ...gitPaths.deny);
-  const guardPolicy: FilesystemPolicy = { ...policy.filesystem, gitWrite: gitPaths.allow };
+  runtimePolicy.filesystem.denyRead.push(auth);
+  runtimePolicy.filesystem.allowWrite.push(tmpdir, ...gitPaths.allow);
+  runtimePolicy.filesystem.denyWrite.push(auth, ...gitPaths.deny);
+  const guardPolicy: FilesystemPolicy = { ...runtimePolicy.filesystem, gitWrite: gitPaths.allow };
   let state: "starting" | "ready" | "failed" = "starting";
 
   pi.registerTool({
@@ -202,7 +213,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     try {
       mkdirSync(tmpdir, { recursive: true });
-      await SandboxManager.initialize(policy);
+      await SandboxManager.initialize(runtimePolicy);
       state = "ready";
       ctx.ui.notify(msg("sandbox-initialized", { mode }), "info");
     } catch (error) {
