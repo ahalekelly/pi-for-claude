@@ -745,12 +745,19 @@ test("session launch fails its auth write preflight before creating artifacts", 
   const root = scratchRepo("pi-for-claude-preflight-denied-");
   const agentDir = isolatedAgentDir(root);
   writeFileSync(join(root, "plan.md"), "Do the thing.\n");
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const env = { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) };
   chmodSync(agentDir, 0o555);
   try {
-    const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "implement-in-worktree", "plan.md"], {
+    const invalid = spawnSync(process.execPath, [cli, "implement-in-worktree"], { cwd: root, encoding: "utf8", env });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /requires a plan file/);
+    assert.doesNotMatch(invalid.stderr, /pi-for-claude setup/);
+
+    const result = spawnSync(process.execPath, [cli, "implement-in-worktree", "plan.md"], {
       cwd: root,
       encoding: "utf8",
-      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
+      env,
     });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /auth\.json/);

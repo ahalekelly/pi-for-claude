@@ -496,9 +496,7 @@ function composePrompt(command: PromptCommand, worktree: string, project: string
   injections.project = project;
   for (const [name, script] of Object.entries(command.inject)) injections[name] = shell(script, worktree);
   if (command.mode === "worktree" || command.mode === "in-place") {
-    const plan = args[0];
-    if (!plan) fail(msg("plan-file-required"));
-    const planPath = resolve(plan);
+    const planPath = resolve(args[0]!);
     injections.plan_path = planPath;
     injections.plan = readFileSync(planPath, "utf8");
   }
@@ -562,11 +560,13 @@ function preflightAuthWrite(): void {
 
 async function runPrompt(name: string, project: string, values: string[]): Promise<void> {
   const command = parsePrompt(readFileSync(commandFile(name), "utf8"));
+  const flags = parseFlags(values);
+  if (command.mode === "resume" && !flags.args[0]) fail(msg("requires-session-id", { name }));
+  if ((command.mode === "worktree" || command.mode === "in-place") && !flags.args[0]) fail(msg("requires-plan-file", { name }));
   await preflightControlBinding();
   preflightAuthWrite();
   const sdk = await import("@earendil-works/pi-coding-agent");
   refreshInstructions(sdk.SettingsManager, home, project);
-  const flags = parseFlags(values);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
   const promptThinking = command.thinking.kind === "prompt" ? command.thinking.level : undefined;
   const modelRuntime = await sdk.ModelRuntime.create();
@@ -581,8 +581,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   let promptArgs = flags.args;
 
   if (command.mode === "resume") {
-    const id = flags.args[0];
-    if (!id) fail(msg("requires-session-id", { name }));
+    const id = flags.args[0]!;
     session = readSession(dirs.sessions, id);
     if (session.kind === "review") fail(msg("cannot-resume-review-session", { id }));
     promptArgs = flags.args.slice(1);
@@ -592,8 +591,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     const conversations = piSessionFiles(dirs.sessions, id);
     if (conversations.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(conversations.length) }));
   } else if (command.mode === "worktree" || command.mode === "in-place") {
-    const plan = flags.args[0];
-    if (!plan) fail(msg("requires-plan-file", { name }));
+    const plan = flags.args[0]!;
     if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
     const id = sessionIdFromPlan(plan);
     if (findSessionPath(dirs.sessions, id)) fail(msg("session-already-exists", { id }));
