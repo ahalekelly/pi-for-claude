@@ -9,6 +9,8 @@ import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { Type, type Static, type TSchema } from "typebox";
+import { Check } from "typebox/value";
 
 import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
@@ -17,20 +19,34 @@ import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
 import { setup } from "./setup.ts";
 import { update } from "./update.ts";
 
-type SessionFields = {
-  id: string;
-  command: string;
-  mainCheckout: string;
-  worktree: string;
-  createdAt: string;
+const sessionFields = {
+  id: Type.String(),
+  command: Type.String(),
+  mainCheckout: Type.String(),
+  worktree: Type.String(),
+  createdAt: Type.String(),
 };
+const sessionSchema = Type.Union([
+  Type.Object({
+    ...sessionFields,
+    kind: Type.Literal("worktree"),
+    baseCommit: Type.String(),
+    branch: Type.String(),
+    mergeState: Type.Union([
+      Type.Object({ kind: Type.Literal("unrebased") }, { additionalProperties: false }),
+      Type.Object({ kind: Type.Literal("rebased"), onto: Type.String() }, { additionalProperties: false }),
+    ]),
+  }, { additionalProperties: false }),
+  Type.Object({ ...sessionFields, kind: Type.Literal("in-place") }, { additionalProperties: false }),
+  Type.Object({ ...sessionFields, kind: Type.Literal("review") }, { additionalProperties: false }),
+]);
+type Session = Static<typeof sessionSchema>;
 
-type Session = SessionFields &
-  (
-    | { kind: "worktree"; baseCommit: string; branch: string; mergeState: { kind: "unrebased" } | { kind: "rebased"; onto: string } }
-    | { kind: "in-place" }
-    | { kind: "review" }
-  );
+const controlFileSchema = Type.Object({
+  port: Type.Integer({ minimum: 1, maximum: 65535 }),
+  token: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+}, { additionalProperties: false });
+type ControlFile = Static<typeof controlFileSchema>;
 
 type Flags = {
   args: string[];
@@ -58,10 +74,14 @@ const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirna
 const packageExtensions = join(import.meta.dirname, "extensions");
 
 type PiSdk = typeof import("@earendil-works/pi-coding-agent");
-type ControlFile = { port: number; token: string };
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+function validate<Type extends TSchema>(schema: Type, value: unknown, message: string): Static<Type> {
+  if (!Check(schema, value)) fail(message);
+  return value;
 }
 
 // Model-facing text lives in prompts/strings.json, never inline in code.
@@ -89,7 +109,7 @@ function sessionDirs(project: string) {
   return { root, sessions, worktrees, kind: resolved.kind };
 }
 
-function sessionPrefix(session: SessionFields): string {
+function sessionPrefix(session: Session): string {
   return `${session.createdAt.replaceAll(":", "-").replaceAll(".", "-")}-${session.id}`;
 }
 
@@ -131,30 +151,7 @@ function sessionResult(sessions: string, id: string): string {
 }
 
 function readSessionFile(path: string): Session {
-  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!value || typeof value !== "object" || Array.isArray(value)) fail(msg("malformed-session-metadata", { path }));
-  const record = value as Record<string, unknown>;
-  const common = ["id", "command", "mainCheckout", "worktree", "createdAt"];
-  if (common.some((field) => typeof record[field] !== "string")) fail(msg("malformed-session-metadata", { path }));
-  const hasOnly = (fields: string[]) => Object.keys(record).every((key) => fields.includes(key));
-  let session: Session;
-  if (record.kind === "in-place" && hasOnly([...common, "kind"])) session = record as Session;
-  else if (record.kind === "review" && hasOnly([...common, "kind"])) session = record as Session;
-  else {
-    if (record.kind !== "worktree" || typeof record.baseCommit !== "string" || typeof record.branch !== "string") {
-      fail(msg("malformed-session-metadata", { path }));
-    }
-    const mergeState = record.mergeState;
-    if (!mergeState || typeof mergeState !== "object" || Array.isArray(mergeState)) fail(msg("malformed-session-metadata", { path }));
-    const state = mergeState as Record<string, unknown>;
-    const validState =
-      (state.kind === "unrebased" && Object.keys(state).length === 1) ||
-      (state.kind === "rebased" && typeof state.onto === "string" && Object.keys(state).length === 2);
-    if (!validState || !hasOnly([...common, "kind", "baseCommit", "branch", "mergeState"])) {
-      fail(msg("malformed-session-metadata", { path }));
-    }
-    session = record as Session;
-  }
+  const session = validate(sessionSchema, JSON.parse(readFileSync(path, "utf8")), msg("malformed-session-metadata", { path }));
   const timestamp = Date.parse(session.createdAt);
   if (!/^[a-z0-9][a-z0-9-]*$/.test(session.id) || Number.isNaN(timestamp) || new Date(timestamp).toISOString() !== session.createdAt) {
     fail(msg("malformed-session-metadata", { path }));
@@ -285,10 +282,7 @@ function handbackBlocker(worktree: string): string {
 }
 
 function readControlFile(path: string): ControlFile {
-  const value = record(JSON.parse(readFileSync(path, "utf8")), "Control file");
-  if (!Number.isInteger(value.port) || (value.port as number) < 1 || (value.port as number) > 65535) fail(msg("malformed-control-file", { path }));
-  if (typeof value.token !== "string" || !/^[0-9a-f]{64}$/.test(value.token)) fail(msg("malformed-control-file", { path }));
-  return { port: value.port as number, token: value.token };
+  return validate(controlFileSchema, JSON.parse(readFileSync(path, "utf8")), msg("malformed-control-file", { path }));
 }
 
 async function controlPortIsLive(path: string): Promise<boolean> {
