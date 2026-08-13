@@ -55,8 +55,6 @@ if (process.env.HTTPS_PROXY && !process.env.NODE_USE_ENV_PROXY) {
 }
 
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
-// This resolves to TypeScript beside src/pi-for-claude.ts and compiled JavaScript
-// beside dist/pi-for-claude.js.
 const packageExtensions = join(import.meta.dirname, "extensions");
 
 type PiSdk = typeof import("@earendil-works/pi-coding-agent");
@@ -343,15 +341,14 @@ async function sdkRun(
 
   const webAccessPackage = dirname(fileURLToPath(import.meta.resolve("pi-web-access/package.json")));
   const browserPackage = dirname(fileURLToPath(import.meta.resolve("pi-agent-browser-native/package.json")));
-  const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
   const resourceLoader = new sdk.DefaultResourceLoader({
     cwd: session.worktree,
     agentDir: configuredAgentDir,
     settingsManager,
     noExtensions: true,
     additionalExtensionPaths: [
-      join(packageExtensions, "sandbox", `index.${extension}`),
-      ...(consult ? [join(packageExtensions, `consult.${extension}`)] : []),
+      join(packageExtensions, "sandbox", "index.ts"),
+      ...(consult ? [join(packageExtensions, "consult.ts")] : []),
       join(webAccessPackage, "index.ts"),
       join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
     ],
