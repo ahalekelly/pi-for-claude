@@ -8,6 +8,7 @@ import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Check } from "typebox/value";
@@ -16,6 +17,7 @@ import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
+import { basePolicy } from "./sandbox-policy.ts";
 import { setup } from "./setup.ts";
 import { update } from "./update.ts";
 
@@ -550,12 +552,22 @@ function preflightAuthWrite(): void {
     mkdirSync(paths.lock);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") return;
-    if (error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")) {
+    if (error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM" || error.code === "EROFS")) {
       fail(msg("auth-write-preflight-failed", { auth: paths.realAuth, lock: paths.lock }));
     }
     throw error;
   }
   rmdirSync(paths.lock);
+}
+
+async function preflightSandbox(readOnly: boolean): Promise<void> {
+  try {
+    await SandboxManager.initialize(basePolicy(readOnly));
+  } catch (error) {
+    fail(msg("sandbox-preflight-failed", { error: error instanceof Error ? error.message : String(error) }));
+  } finally {
+    await SandboxManager.reset();
+  }
 }
 
 async function runPrompt(name: string, project: string, values: string[]): Promise<void> {
@@ -565,6 +577,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   if ((command.mode === "worktree" || command.mode === "in-place") && !flags.args[0]) fail(msg("requires-plan-file", { name }));
   await preflightControlBinding();
   preflightAuthWrite();
+  await preflightSandbox(command.sandbox === "read-only");
   const sdk = await import("@earendil-works/pi-coding-agent");
   refreshInstructions(sdk.SettingsManager, home, project);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;

@@ -8,52 +8,13 @@ import {
   type BashOperations,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
 import { agentPaths } from "../../agent-paths.ts";
 import { renderString } from "../../core.ts";
+import { basePolicy, sandboxTmpdir } from "../../sandbox-policy.ts";
 import { usesRm } from "./command-guard.ts";
 import { readBlocked, writeBlocked, type FilesystemPolicy } from "./path-guard.ts";
-
-type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
-
-const policy = {
-  network: {
-    allowedDomains: [
-      "api.github.com",
-      "github.com",
-      "*.github.com",
-      "npmjs.org",
-      "*.npmjs.org",
-      "pypi.org",
-      "*.pypi.org",
-    ],
-    deniedDomains: [],
-  },
-  filesystem: {
-    denyRead: [
-      "~/.agents/secrets.env",
-      "~/.secrets.env",
-      "~/.ssh",
-      "~/.aws",
-      "~/.gnupg",
-      "~/.config/gcloud",
-    ],
-    allowWrite: [".", "/tmp/claude", "~/.Trash", "~/.local/share/Trash"],
-    denyWrite: [
-      ".git",
-      "config.worktree",
-      "commondir",
-      "gitdir",
-      "~/.npm/_logs/**",
-      "~/.claude/debug/**",
-      ".env",
-      ".env.*",
-      "*.pem",
-      "*.key",
-    ],
-  },
-} satisfies Policy;
 
 const stringsPath = join(import.meta.dirname, "../../..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string> = {}): string {
@@ -157,16 +118,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   const mode = process.env.PI_FOR_CLAUDE_SANDBOX_MODE;
   if (mode !== "worktree-write" && mode !== "project-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
   const readOnly = mode === "read-only";
-  const runtimePolicy: Policy = {
-    network: policy.network,
-    filesystem: {
-      denyRead: [...policy.filesystem.denyRead],
-      allowWrite: readOnly
-        ? ["/tmp/claude", "~/.Trash", "~/.local/share/Trash"]
-        : [...policy.filesystem.allowWrite],
-      denyWrite: [...policy.filesystem.denyWrite],
-    },
-  };
+  const runtimePolicy = basePolicy(readOnly);
   const gitPaths = mode === "worktree-write" ? gitPolicyPaths(cwd) : { allow: [], deny: [] };
   const auth = agentPaths().realAuth;
   // The sandbox runtime points the child's TMPDIR at this directory (same
@@ -174,26 +126,27 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   // sets CLAUDE_CODE_TMPDIR to its own per-user temp dir, so without these
   // two steps every TMPDIR-respecting tool (python tempfile, node os.tmpdir)
   // fails, and mktemp silently returns "" so `cat $tmp` hangs on stdin.
-  const tmpdir = process.env.CLAUDE_CODE_TMPDIR || process.env.CLAUDE_TMPDIR || "/tmp/claude";
+  const tmpdir = sandboxTmpdir();
   runtimePolicy.filesystem.denyRead.push(auth);
   runtimePolicy.filesystem.allowWrite.push(tmpdir, ...gitPaths.allow);
   runtimePolicy.filesystem.denyWrite.push(auth, ...gitPaths.deny);
   const guardPolicy: FilesystemPolicy = { ...runtimePolicy.filesystem, gitWrite: gitPaths.allow };
-  let state: "starting" | "ready" | "failed" = "starting";
+  let status: { state: "starting" } | { state: "ready" } | { state: "failed"; error: string } = { state: "starting" };
 
   pi.registerTool({
     ...localBash,
     label: "bash (sandboxed)",
     description: `${localBash.description} The rm command is blocked because permanent deletion is not recoverable; use trash instead.`,
     async execute(id, params, signal, onUpdate) {
-      if (state === "failed") throw new Error(msg("sandbox-init-failed-blocked"));
-      if (state === "starting") throw new Error(msg("sandbox-not-initialized-blocked"));
+      if (status.state === "failed") throw new Error(status.error);
+      if (status.state === "starting") throw new Error(msg("sandbox-not-initialized-blocked"));
       return createBashTool(cwd, { operations: sandboxedBash() }).execute(id, params, signal, onUpdate);
     },
   });
 
   pi.on("user_bash", () => {
-    if (state !== "ready") throw new Error(msg("sandbox-unavailable-blocked"));
+    if (status.state === "failed") throw new Error(status.error);
+    if (status.state !== "ready") throw new Error(msg("sandbox-unavailable-blocked"));
     return { operations: sandboxedBash() };
   });
 
@@ -214,15 +167,17 @@ export default function sandboxExtension(pi: ExtensionAPI) {
     try {
       mkdirSync(tmpdir, { recursive: true });
       await SandboxManager.initialize(runtimePolicy);
-      state = "ready";
+      status = { state: "ready" };
       ctx.ui.notify(msg("sandbox-initialized", { mode }), "info");
     } catch (error) {
-      state = "failed";
-      ctx.ui.notify(msg("sandbox-init-failed-notify", { error: error instanceof Error ? error.message : String(error) }), "error");
+      const message = msg("sandbox-init-failed-blocked", { error: error instanceof Error ? error.message : String(error) });
+      status = { state: "failed", error: message };
+      process.stderr.write(`${message}\n`);
+      ctx.ui.notify(message, "error");
     }
   });
 
   pi.on("session_shutdown", async () => {
-    if (state === "ready") await SandboxManager.reset();
+    if (status.state === "ready") await SandboxManager.reset();
   });
 }

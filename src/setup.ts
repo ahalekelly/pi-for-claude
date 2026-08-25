@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+
 import { agentPaths } from "./agent-paths.ts";
 import { renderString } from "./core.ts";
 
@@ -79,13 +81,12 @@ export function setup(home: string): void {
   const allowWrite = ensureStrings(filesystem, "allowWrite", "sandbox.filesystem.allowWrite", home);
   const allowRead = ensureStrings(filesystem, "allowRead", "sandbox.filesystem.allowRead", home);
   const deny = ensureStrings(permissions, "deny", "permissions.deny", home);
+  let settingsChanged = !existsSync(settingsPath);
   const wanted = [
-    [allowWrite, paths.realAuth],
-    [allowWrite, paths.lock],
+    [allowWrite, paths.realAgentDir],
     [allowRead, paths.realAuth],
     ...[paths.auth, paths.realAuth].map((path) => [deny, `Read(${path})`] as [string[], string]),
   ] as Array<[string[], string]>;
-  let settingsChanged = !existsSync(settingsPath);
   if (network.allowLocalBinding !== true) {
     network.allowLocalBinding = true;
     settingsChanged = true;
@@ -100,6 +101,11 @@ export function setup(home: string): void {
     writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
   }
   process.stdout.write(`${msg(home, settingsChanged ? "setup-settings-fixed" : "setup-settings-configured", { path: settingsPath })}\n`);
+
+  const dependencies = SandboxManager.checkDependencies();
+  for (const error of dependencies.errors) process.stdout.write(`${msg(home, "setup-sandbox-dependency-error", { error })}\n`);
+  for (const warning of dependencies.warnings) process.stdout.write(`${msg(home, "setup-sandbox-dependency-warning", { warning })}\n`);
+  if (dependencies.errors.length === 0) process.stdout.write(`${msg(home, "setup-sandbox-dependencies-configured")}\n`);
 
   const claudePath = join(homeDir, ".claude", "CLAUDE.md");
   const claudeSource = existsSync(claudePath) ? readFileSync(claudePath, "utf8") : "";
@@ -118,4 +124,7 @@ export function setup(home: string): void {
 
   const loggedIn = existsSync(paths.auth) && statSync(paths.auth).size > 0;
   process.stdout.write(`${msg(home, loggedIn ? "setup-auth-configured" : "setup-auth-missing", { path: paths.auth })}\n`);
+  if (dependencies.errors.length > 0) {
+    throw new Error(msg(home, "setup-sandbox-dependencies-missing", { errors: dependencies.errors.join(", ") }));
+  }
 }

@@ -27,7 +27,7 @@ Install from npm:
 npm install --global pi-for-claude
 ```
 
-Configure Claude Code's sandbox to permit Pi's authentication writes and loopback control channel, and install the global instructions and git ignore:
+Configure Claude Code's sandbox, check Pi's command-sandbox dependencies, and install the global instructions and git ignore:
 
 ```sh
 pi-for-claude setup
@@ -58,7 +58,14 @@ Claude writes the task plan in a Markdown file, then passes it to `run`:
 pi-for-claude run .agents/plans/fix-auth.md
 ```
 
-Pi reads the plan file and edits the current project directly. Pi's questions for Claude go to stdout; Claude watches with `Monitor` and answers in the file the run names.
+Pi reads the plan file and edits the current project directly. From Claude Code, launch prompt commands with unsandboxed background Bash, then follow their output in a Monitor:
+
+```js
+Bash({ command: "nohup pi-for-claude run .agents/plans/fix-auth.md > /dev/null 2>&1 &", dangerouslyDisableSandbox: true })
+Monitor({ command: "pi-for-claude watch fix-auth", description: "Pi session fix-auth", persistent: true, timeout_ms: 300000 })
+```
+
+Pi's command sandbox cannot start inside Claude Code's sandbox; Monitor is always sandboxed. The Monitor reports Pi's questions and answer-file paths.
 
 `run` uses the `project-write` sandbox: Pi can edit project files, but it cannot write git metadata.
 
@@ -129,7 +136,7 @@ Prompt commands call a model:
 
 Built-in commands do not call a model:
 
-- `setup` — configure the machine for pi-for-claude and check provider login
+- `setup` — configure the machine and check sandbox dependencies and provider login
 - `update` — update Pi and all bundled and installed extensions, respecting npm's `min-release-age`
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the last assistant response
@@ -175,7 +182,7 @@ Each prompt chooses one sandbox:
 - `worktree-write` can edit and commit only inside its session worktree
 - `read-only` cannot edit the project
 
-All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. `pi-for-claude setup` grants the wrapper access to Pi's authentication files and local control-channel binding. The Pi agent runtime retains access to its model provider.
+All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. `pi-for-claude setup` grants the wrapper write access to Pi's agent directory and local control-channel binding while denying Claude direct reads of the auth files. The Pi agent runtime retains access to its model provider.
 
 The bundled web and browser tools make network requests directly from the agent runtime, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
 

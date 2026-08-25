@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -16,7 +16,7 @@ function machine() {
   const agentDir = join(root, "agent");
   mkdirSync(home);
   mkdirSync(agentDir);
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
     XDG_CONFIG_HOME: "",
@@ -33,7 +33,7 @@ function expectedSettings(agentDir: string) {
   const auth = join(realAgentDir, "auth.json");
   return {
     sandbox: {
-      filesystem: { allowWrite: [auth, join(realAgentDir, "auth.json.lock")], allowRead: [auth] },
+      filesystem: { allowWrite: [realAgentDir], allowRead: [auth] },
       network: { allowLocalBinding: true },
     },
     permissions: { deny: [`Read(${auth})`] },
@@ -118,4 +118,20 @@ test("setup respects the configured global git excludes file", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(readFileSync(custom, "utf8").trim().split("\n"), ignored);
   assert.equal(existsSync(join(home, ".config", "git", "ignore")), false);
+});
+
+test("setup reports missing sandbox dependencies after its other checks", { skip: process.platform !== "linux" }, () => {
+  const machineState = machine();
+  const bin = join(machineState.root, "bin");
+  mkdirSync(bin);
+  const git = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+  assert.ok(git);
+  symlinkSync(git, join(bin, "git"));
+  machineState.env.PATH = bin;
+
+  const result = machineState.run();
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /dependency error: ripgrep \(rg\) not found/);
+  assert.match(result.stdout, /Provider login: not configured/);
+  assert.match(result.stderr, /Pi's command sandbox is missing dependencies:.*ripgrep \(rg\) not found/);
 });
