@@ -4,6 +4,24 @@ import type { FilesystemPolicy } from "./extensions/sandbox/path-guard.ts";
 
 export type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
 
+export const sandboxGitExcludes = [
+  ".bash_profile",
+  ".bashrc",
+  ".env",
+  ".env.*",
+  ".gitconfig",
+  ".gitmodules",
+  ".idea",
+  ".mcp.json",
+  ".profile",
+  ".ripgreprc",
+  ".vscode",
+  ".zprofile",
+  ".zshrc",
+  "*.key",
+  "*.pem",
+];
+
 const policy = {
   network: {
     allowedDomains: [
@@ -29,9 +47,6 @@ const policy = {
     allowWrite: [".", "/tmp/claude", "~/.Trash", "~/.local/share/Trash"],
     denyWrite: [
       ".git",
-      "config.worktree",
-      "commondir",
-      "gitdir",
       "~/.npm/_logs/**",
       "~/.claude/debug/**",
       ".env",
@@ -49,13 +64,13 @@ export function sandboxTmpdir(): string {
 }
 
 // A fresh copy per session: the extension appends session-specific paths.
-export function basePolicy(readOnly: boolean): Policy {
+export function basePolicy(readOnly: boolean, privateGit: boolean = false): Policy {
   return {
     network: policy.network,
     filesystem: {
       denyRead: [...policy.filesystem.denyRead],
       allowWrite: readOnly ? ["/tmp/claude", "~/.Trash", "~/.local/share/Trash"] : [...policy.filesystem.allowWrite],
-      denyWrite: [...policy.filesystem.denyWrite],
+      denyWrite: policy.filesystem.denyWrite.filter((entry) => !privateGit || entry !== ".git"),
     },
   };
 }

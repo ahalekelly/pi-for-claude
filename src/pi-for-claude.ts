@@ -17,32 +17,10 @@ import { agentDir, agentPaths } from "./agent-paths.ts";
 import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
-import { basePolicy } from "./sandbox-policy.ts";
+import { basePolicy, sandboxGitExcludes } from "./sandbox-policy.ts";
+import { type NewSession, type Session, SessionStore, type TurnWriter } from "./session-store.ts";
 import { setup } from "./setup.ts";
-import { update } from "./update.ts";
-
-const sessionFields = {
-  id: Type.String(),
-  command: Type.String(),
-  mainCheckout: Type.String(),
-  worktree: Type.String(),
-  createdAt: Type.String(),
-};
-const sessionSchema = Type.Union([
-  Type.Object({
-    ...sessionFields,
-    kind: Type.Literal("worktree"),
-    baseCommit: Type.String(),
-    branch: Type.String(),
-    mergeState: Type.Union([
-      Type.Object({ kind: Type.Literal("unrebased") }, { additionalProperties: false }),
-      Type.Object({ kind: Type.Literal("rebased"), onto: Type.String() }, { additionalProperties: false }),
-    ]),
-  }, { additionalProperties: false }),
-  Type.Object({ ...sessionFields, kind: Type.Literal("in-place") }, { additionalProperties: false }),
-  Type.Object({ ...sessionFields, kind: Type.Literal("review") }, { additionalProperties: false }),
-]);
-type Session = Static<typeof sessionSchema>;
+import { packageVersion, showVersion, update } from "./update.ts";
 
 const controlFileSchema = Type.Object({
   port: Type.Integer({ minimum: 1, maximum: 65535 }),
@@ -73,6 +51,7 @@ if (process.env.HTTPS_PROXY && !process.env.NODE_USE_ENV_PROXY) {
 }
 
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
+const version = packageVersion(home);
 const packageExtensions = join(import.meta.dirname, "extensions");
 
 type PiSdk = typeof import("@earendil-works/pi-coding-agent");
@@ -91,14 +70,13 @@ function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(join(home, "prompts", "strings.json"), name, injections);
 }
 
-// One process serves one session, so the active session's log path is module
-// state. emit() mirrors all session output into the log so `watch` can follow
-// a run this process's stdout doesn't reach (e.g. an unsandboxed nohup launch).
-let sessionLog: string | undefined;
+// One process serves one turn. Output is mirrored into its invocation log so
+// `watch` can follow a run this process's stdout does not reach.
+let activeTurn: TurnWriter | undefined;
 let resumableSessionId: string | undefined;
 function emit(text: string): void {
   process.stdout.write(text);
-  if (sessionLog) appendFileSync(sessionLog, text);
+  activeTurn?.append(text);
 }
 
 function sessionDirs(project: string) {
@@ -108,63 +86,7 @@ function sessionDirs(project: string) {
   const worktrees = join(root, ".agents", "worktrees");
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
   mkdirSync(worktrees, { recursive: true });
-  return { root, sessions, worktrees, kind: resolved.kind };
-}
-
-function findSessionPath(sessions: string, id: string): string | undefined {
-  const path = join(sessions, `${id}.pi-for-claude.json`);
-  return existsSync(path) ? path : undefined;
-}
-
-function sessionPath(sessions: string, id: string): string {
-  const path = findSessionPath(sessions, id);
-  if (!path) fail(msg("unknown-session", { id }));
-  return path;
-}
-
-function piSessionFiles(sessions: string, id: string): string[] {
-  return readdirSync(sessions).filter((file) => file.endsWith(`_${id}.jsonl`));
-}
-
-function piSessionPath(sessions: string, id: string): string {
-  const files = piSessionFiles(sessions, id);
-  if (files.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(files.length) }));
-  return join(sessions, files[0]!);
-}
-
-function sessionResult(sessions: string, id: string): string {
-  const entries = readFileSync(piSessionPath(sessions, id), "utf8").trim().split("\n").reverse();
-  for (const line of entries) {
-    const entry = record(JSON.parse(line), "Pi session entry");
-    if (entry.type !== "message") continue;
-    const message = record(entry.message, "Pi session message");
-    if (typeof message.role !== "string") fail(msg("role-must-be-string", { context: "Pi session message" }));
-    if (message.role !== "assistant") continue;
-    const text = assistantText(entry.message);
-    if (text) return text;
-  }
-  fail(msg("no-assistant-response", { id }));
-}
-
-function readSessionFile(path: string): Session {
-  const session = validate(sessionSchema, JSON.parse(readFileSync(path, "utf8")), msg("malformed-session-metadata", { path }));
-  const timestamp = Date.parse(session.createdAt);
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(session.id) || Number.isNaN(timestamp) || new Date(timestamp).toISOString() !== session.createdAt) {
-    fail(msg("malformed-session-metadata", { path }));
-  }
-  if (basename(path) !== `${session.id}.pi-for-claude.json`) fail(msg("malformed-session-metadata", { path }));
-  return session;
-}
-
-function readSession(sessions: string, id: string): Session {
-  const path = sessionPath(sessions, id);
-  const session = readSessionFile(path);
-  if (session.id !== id) fail(msg("malformed-session-metadata", { path }));
-  return session;
-}
-
-function writeSession(sessions: string, session: Session): void {
-  writeFileSync(join(sessions, `${session.id}.pi-for-claude.json`), `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
+  return { root, sessions, worktrees, kind: resolved.kind, store: new SessionStore(sessions, home, version) };
 }
 
 function parseFlags(values: string[]): Flags {
@@ -214,6 +136,13 @@ function shell(command: string, cwd: string): string {
   if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
   if (result.status !== 0) fail(result.stderr?.trim() || msg("command-failed", { command }));
   return result.stdout.trimEnd();
+}
+
+function trashPath(path: string): void {
+  const command = process.platform === "win32" ? "trash.cmd" : "trash";
+  const result = spawnSync(command, [path], { encoding: "utf8" });
+  if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
+  if (result.status !== 0) fail(result.stderr.trim() || msg("command-failed", { command }));
 }
 
 function bestEffortInputShell(command: string, cwd: string): string {
@@ -298,15 +227,17 @@ async function controlPortIsLive(path: string): Promise<boolean> {
 async function sdkRun(
   sdk: PiSdk,
   modelRuntime: ModelRuntime,
-  session: Session,
+  session: Session | NewSession,
   sessions: string,
+  store: SessionStore,
   command: PromptCommand,
   prompt: string,
   modelName: string,
   thinking: string,
   consult: boolean,
-): Promise<string> {
-  const control = join(sessions, `${session.id}.ctl`);
+): Promise<{ result: string; streamed: boolean }> {
+  const sessionDir = join(sessions, session.id);
+  const control = join(sessionDir, "control.json");
   if (existsSync(control)) {
     if (await controlPortIsLive(control)) fail(msg("session-currently-running", { id: session.id }));
     rmSync(control);
@@ -316,7 +247,7 @@ async function sdkRun(
   if (!executablePath) fail(msg("path-required"));
   process.chdir(session.worktree);
   process.env.PI_FOR_CLAUDE_SANDBOX_MODE = command.sandbox;
-  process.env.PI_FOR_CLAUDE_SESSION_DIR = sessions;
+  process.env.PI_FOR_CLAUDE_SESSION_DIR = sessionDir;
   process.env.PI_FOR_CLAUDE_SESSION_ID = session.id;
   process.env.PI_FOR_CLAUDE_SYSTEM_PATH = executablePath;
   const agentBrowserPackage = dirname(fileURLToPath(import.meta.resolve("agent-browser/package.json")));
@@ -345,9 +276,14 @@ async function sdkRun(
   });
   await resourceLoader.reload();
 
-  const sessionManager = piSessionFiles(sessions, session.id).length === 0
-    ? sdk.SessionManager.create(session.worktree, sessions, { id: session.id })
-    : sdk.SessionManager.open(piSessionPath(sessions, session.id), sessions, session.worktree);
+  const sessionManager = "conversation" in session
+    ? sdk.SessionManager.open(session.conversation, sessionDir, session.worktree)
+    : sdk.SessionManager.create(session.worktree, sessionDir, { id: session.id });
+  if (!("conversation" in session)) {
+    const conversation = sessionManager.getSessionFile();
+    if (!conversation) fail(msg("conversation-path-required"));
+    store.save(session, conversation);
+  }
   const projectTools = command.sandbox === "read-only"
     ? ["read", "bash", "grep", "find", "ls"]
     : ["read", "bash", "write", "edit", "grep", "find", "ls"];
@@ -372,9 +308,15 @@ async function sdkRun(
   let abortRequested = false;
   let lastEventAt = Date.now();
   let result: string | undefined;
+  let streamed = false;
   let modelError: Error | undefined;
   const unsubscribe = agentSession.subscribe((event) => {
     lastEventAt = Date.now();
+    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+      activeTurn?.append(event.assistantMessageEvent.delta);
+      streamed = true;
+      return;
+    }
     if (event.type !== "message_end" || event.message.role !== "assistant") return;
     if (event.message.stopReason === "error") {
       modelError = new Error(event.message.errorMessage ? msg("pi-model-error", { message: event.message.errorMessage }) : msg("pi-model-error-no-message"));
@@ -425,7 +367,8 @@ async function sdkRun(
   if (!address || typeof address === "string") fail(msg("control-server-address"));
   writeFileSync(control, `${JSON.stringify({ port: address.port, token })}\n`, { mode: 0o600 });
 
-  const question = join(sessions, `${session.id}.question.md`);
+  activeTurn?.running();
+  const question = join(sessionDir, `${session.id}.question.md`);
   const stallMs = 5 * 60 * 1000;
   let questionAnnounced = false;
   let warnedIntervals = 0;
@@ -443,7 +386,7 @@ async function sdkRun(
       emit(`${msg("question-from-session", {
         id: session.id,
         text,
-        path: join(sessions, `${session.id}.answer.md`),
+        path: join(sessionDir, `${session.id}.answer.md`),
       })}\n`);
       questionAnnounced = true;
       return;
@@ -472,8 +415,8 @@ async function sdkRun(
         if (modelError) throw modelError;
       }
     }
-    if (result) return result;
-    if (abortRequested) return msg("interrupted");
+    if (result) return { result, streamed };
+    if (abortRequested) return { result: msg("interrupted"), streamed };
     return fail(msg("pi-settled-without-result"));
   } finally {
     clearInterval(monitor);
@@ -575,6 +518,68 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   const flags = parseFlags(values);
   if (command.mode === "resume" && !flags.args[0]) fail(msg("requires-session-id", { name }));
   if ((command.mode === "worktree" || command.mode === "in-place") && !flags.args[0]) fail(msg("requires-plan-file", { name }));
+  const dirs = sessionDirs(project);
+  if (command.mode === "worktree" && dirs.kind !== "checkout") fail(msg("implement-in-worktree-requires-git"));
+
+  let session: Session | NewSession;
+  let promptArgs = flags.args;
+  if (command.mode === "resume") {
+    const id = flags.args[0]!;
+    const existing = dirs.store.readActive(id);
+    if (existing.kind === "review") fail(msg("cannot-resume-review-session", { id }));
+    if (!existsSync(existing.worktree)) fail(msg("session-worktree-missing", { worktree: existing.worktree }));
+    if (!existsSync(existing.conversation)) fail(msg("conversation-missing", { path: existing.conversation }));
+    session = existing;
+    promptArgs = flags.args.slice(1);
+  } else if (command.mode === "worktree" || command.mode === "in-place") {
+    const plan = flags.args[0]!;
+    if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
+    const id = sessionIdFromPlan(plan);
+    if (dirs.store.exists(id)) {
+      const existing = dirs.store.read(id);
+      fail(msg(existing.status === "active" ? "session-already-exists" : "session-name-burned", { id }));
+    }
+    if (command.mode === "in-place") {
+      session = {
+        kind: "in-place",
+        id,
+        command: name,
+        mainCheckout: dirs.root,
+        worktree: dirs.root,
+        createdAt: new Date().toISOString(),
+      };
+    } else {
+      session = {
+        kind: "worktree",
+        id,
+        command: name,
+        mainCheckout: dirs.root,
+        worktree: join(dirs.worktrees, id),
+        branch: `pi/${id}`,
+        baseCommit: git(dirs.root, ["rev-parse", "HEAD"]),
+        mergeState: { kind: "unrebased" },
+        createdAt: new Date().toISOString(),
+      };
+    }
+  } else {
+    let worktree = project;
+    if (flags.args[0] && dirs.store.exists(flags.args[0])) {
+      const target = dirs.store.readActive(flags.args[0]);
+      worktree = target.worktree;
+      promptArgs = flags.args.slice(1);
+    }
+    session = {
+      kind: "review",
+      id: `${name}-${Date.now()}`,
+      command: name,
+      mainCheckout: dirs.root,
+      worktree,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  activeTurn = dirs.store.beginTurn(session.id, randomBytes(16).toString("hex"));
+  if (session.kind !== "review") resumableSessionId = session.id;
   await preflightControlBinding();
   preflightAuthWrite();
   await preflightSandbox(command.sandbox === "read-only");
@@ -588,84 +593,19 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   for (const path of [...flags.prepend, ...flags.append]) {
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
-  const dirs = sessionDirs(project);
-  if (command.mode === "worktree" && dirs.kind !== "checkout") fail(msg("implement-in-worktree-requires-git"));
-  let session: Session;
-  let promptArgs = flags.args;
-
-  if (command.mode === "resume") {
-    const id = flags.args[0]!;
-    session = readSession(dirs.sessions, id);
-    if (session.kind === "review") fail(msg("cannot-resume-review-session", { id }));
-    promptArgs = flags.args.slice(1);
-    if (!existsSync(session.worktree)) fail(msg("session-worktree-missing", { worktree: session.worktree }));
-    // Without its conversation JSONL, pi would silently start an amnesiac
-    // session under the same id instead of resuming.
-    const conversations = piSessionFiles(dirs.sessions, id);
-    if (conversations.length !== 1) fail(msg("expected-one-jsonl", { id, count: String(conversations.length) }));
-  } else if (command.mode === "worktree" || command.mode === "in-place") {
-    const plan = flags.args[0]!;
-    if (!existsSync(resolve(plan))) fail(msg("plan-file-missing", { path: resolve(plan) }));
-    const id = sessionIdFromPlan(plan);
-    if (findSessionPath(dirs.sessions, id)) fail(msg("session-already-exists", { id }));
-    // A merged or discarded session leaves its conversation JSONL behind, which
-    // permanently reserves the name; only "resume it" would be a lie here.
-    if (piSessionFiles(dirs.sessions, id).length > 0) fail(msg("session-name-burned", { id }));
-    if (command.mode === "in-place") {
-      session = {
-        kind: "in-place",
-        id,
-        command: name,
-        mainCheckout: dirs.root,
-        worktree: dirs.root,
-        createdAt: new Date().toISOString(),
-      };
-    } else {
-      const worktree = join(dirs.worktrees, id);
-      const branch = `pi/${id}`;
-      const baseCommit = git(dirs.root, ["rev-parse", "HEAD"]);
-      git(dirs.root, ["worktree", "add", "-b", branch, worktree, "HEAD"]);
-      session = {
-        kind: "worktree",
-        id,
-        command: name,
-        mainCheckout: dirs.root,
-        worktree,
-        branch,
-        baseCommit,
-        mergeState: { kind: "unrebased" },
-        createdAt: new Date().toISOString(),
-      };
-    }
-    writeSession(dirs.sessions, session);
-  } else {
-    let worktree = project;
-    if (flags.args[0] && findSessionPath(dirs.sessions, flags.args[0])) {
-      const target = readSession(dirs.sessions, flags.args[0]);
-      worktree = target.worktree;
-      promptArgs = flags.args.slice(1);
-    }
-    const id = `${name}-${Date.now()}`;
-    session = {
-      kind: "review",
-      id,
-      command: name,
-      mainCheckout: dirs.root,
-      worktree,
-      createdAt: new Date().toISOString(),
-    };
-    writeSession(dirs.sessions, session);
+  if (!("conversation" in session) && session.kind === "worktree") {
+    git(dirs.root, ["clone", "--local", "--no-checkout", "--no-tags", dirs.root, session.worktree]);
+    git(session.worktree, ["checkout", "-b", session.branch, session.baseCommit]);
+    appendFileSync(join(session.worktree, ".git", "info", "exclude"), `\n${sandboxGitExcludes.join("\n")}\n`);
   }
-
-  sessionLog = join(dirs.sessions, `${session.id}.log`);
-  if (session.kind !== "review") resumableSessionId = session.id;
-  appendFileSync(sessionLog, "");
   const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
-  const result = await sdkRun(sdk, modelRuntime, session, dirs.sessions, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
+  const run = await sdkRun(sdk, modelRuntime, session, dirs.sessions, dirs.store, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
+  session = dirs.store.read(session.id);
   for (const entry of command.output) {
     switch (entry.kind) {
       case "pi":
-        emit(`${result}\n`);
+        process.stdout.write(`${run.result}\n`);
+        if (!run.streamed) activeTurn.append(`${run.result}\n`);
         break;
       case "text":
         emit(entry.text);
@@ -683,17 +623,19 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     if (rebaseInProgress(session.worktree)) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
       emit(`\n${msg("handback-rebase-warning", { worktree: session.worktree, conflicts })}\n`);
-      return;
+    } else {
+      const blocker = handbackBlocker(session.worktree);
+      if (blocker) emit(`\n${msg("handback-warning", { worktree: session.worktree, problem: blocker })}\n`);
     }
-    const blocker = handbackBlocker(session.worktree);
-    if (blocker) emit(`\n${msg("handback-warning", { worktree: session.worktree, problem: blocker })}\n`);
   }
+  activeTurn.append(`${msg("session-settled")}\n`);
+  activeTurn.settle(run.result);
 }
 
 function control(project: string, id: string, type: "steer" | "follow_up" | "abort", message: string): Promise<void> {
-  const { sessions } = sessionDirs(project);
-  readSession(sessions, id);
-  const path = join(sessions, `${id}.ctl`);
+  const { sessions, store } = sessionDirs(project);
+  store.readActive(id);
+  const path = join(sessions, id, "control.json");
   if (!existsSync(path)) fail(msg("session-not-currently-running", { id }));
   const location = readControlFile(path);
   return new Promise((resolveControl, reject) => {
@@ -719,11 +661,7 @@ function control(project: string, id: string, type: "steer" | "follow_up" | "abo
 }
 
 function listSessions(project: string): void {
-  const { sessions } = sessionDirs(project);
-  const records = readdirSync(sessions)
-    .filter((file) => file.endsWith(".pi-for-claude.json"))
-    .map((file) => readSessionFile(join(sessions, file)));
-  for (const record of records.sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+  for (const record of sessionDirs(project).store.list()) {
     process.stdout.write(`${record.id}\t${record.command}\t${record.worktree}\n`);
   }
 }
@@ -747,7 +685,7 @@ async function view(project: string, values: string[]): Promise<void> {
   const id = values[0];
   const flag = values[1];
   if (!id || values.length > 2 || (flag !== undefined && flag !== "--no-open" && flag !== "--live")) fail(msg("view-usage"));
-  const source = piSessionPath(sessionDirs(project).sessions, id);
+  const source = sessionDirs(project).store.read(id).conversation;
   const output = `${source.slice(0, -".jsonl".length)}.html`;
   exportSession(source, output);
   if (flag === "--no-open") return;
@@ -825,8 +763,8 @@ async function view(project: string, values: string[]): Promise<void> {
 }
 
 function merge(project: string, id: string): void {
-  const { root, sessions } = sessionDirs(project);
-  const session = readSession(sessions, id);
+  const { root, store } = sessionDirs(project);
+  const session = store.readActive(id);
   if (session.kind !== "worktree") fail(msg("session-no-mergeable-branch", { id }));
   if (rebaseInProgress(session.worktree)) fail(msg("session-rebase-in-progress", { id }));
   if (git(session.worktree, ["status", "--porcelain"])) {
@@ -836,14 +774,15 @@ function merge(project: string, id: string): void {
   if (!rootBranch) fail(msg("project-not-on-branch"));
   const rootHead = git(root, ["rev-parse", "HEAD"]);
   if (session.mergeState.kind === "unrebased" || session.mergeState.onto !== rootHead) {
-    const rebase = spawnSync("git", ["rebase", rootBranch], { cwd: session.worktree, encoding: "utf8" });
+    git(session.worktree, ["fetch", "--no-tags", root, rootBranch]);
+    const rebase = spawnSync("git", ["rebase", rootHead], { cwd: session.worktree, encoding: "utf8" });
     if (rebase.status !== 0) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
       fail(msg("rebase-stopped-with-conflicts", { conflicts, worktree: session.worktree, id: session.id }));
     }
     if (rootHead !== session.baseCommit) {
       session.mergeState = { kind: "rebased", onto: rootHead };
-      writeSession(sessions, session);
+      store.update(session);
       process.stdout.write(`${msg("rebased-onto-updated", { id, branch: rootBranch, worktree: session.worktree })}\n`);
       return;
     }
@@ -851,21 +790,20 @@ function merge(project: string, id: string): void {
   const rebasedOnto = session.mergeState.kind === "rebased" ? session.mergeState.onto : rootHead;
   if (git(root, ["rev-parse", "HEAD"]) !== rebasedOnto) fail(msg("project-moved-after-rebase"));
   if (git(session.worktree, ["rev-parse", "HEAD"]) === rebasedOnto) fail(msg("session-no-changes-to-merge", { id }));
-  git(root, ["merge", "--ff-only", session.branch]);
-  git(root, ["worktree", "remove", session.worktree]);
-  git(root, ["branch", "-d", session.branch]);
-  rmSync(sessionPath(sessions, id));
+  git(root, ["fetch", "--no-tags", session.worktree, session.branch]);
+  const candidate = git(root, ["rev-parse", "FETCH_HEAD"]);
+  if (candidate !== git(session.worktree, ["rev-parse", "HEAD"])) fail(msg("imported-commit-mismatch"));
+  git(root, ["merge", "--ff-only", candidate]);
+  store.close(session);
+  trashPath(session.worktree);
   process.stdout.write(`${msg("merged", { id, branch: rootBranch })}\n`);
 }
 
 function discard(project: string, id: string): void {
-  const { root, sessions } = sessionDirs(project);
-  const session = readSession(sessions, id);
-  if (session.kind === "worktree") {
-    git(root, ["worktree", "remove", "--force", session.worktree]);
-    git(root, ["branch", "-D", session.branch]);
-  }
-  rmSync(sessionPath(sessions, id));
+  const { store } = sessionDirs(project);
+  const session = store.readActive(id);
+  if (session.kind === "worktree" && existsSync(session.worktree)) trashPath(session.worktree);
+  store.close(session);
   process.stdout.write(`${msg("discarded", { id })}\n`);
 }
 
@@ -878,42 +816,28 @@ function help(): void {
   process.stdout.write(msg("help-builtins"));
 }
 
-// The runner removes the control file before printing its final output, so
-// after it disappears the log may still be growing; the settled and failed
-// marker lines are the authoritative end-of-run signals and the grace period
-// covers a killed run that never writes one.
 async function watchSession(project: string, values: string[]): Promise<void> {
   const id = values[0];
   if (!id || values.length > 1) fail(msg("watch-usage"));
-  const { sessions } = sessionDirs(project);
-  readSession(sessions, id);
-  const log = join(sessions, `${id}.log`);
-  const control = join(sessions, `${id}.ctl`);
-  const settledMarker = `${msg("session-settled")}\n`;
-  const failedMarker = `${msg("session-failed")}\n`;
+  const store = sessionDirs(project).store;
+  const initial = store.readTurn(id);
   let offset = 0;
-  let gracePolls = 0;
   for (;;) {
-    if (existsSync(log)) {
-      const content = readFileSync(log, "utf8");
+    const turn = store.readTurn(id);
+    if (turn.id !== initial.id) fail(msg("session-turn-changed", { id }));
+    if (existsSync(turn.log)) {
+      const content = readFileSync(turn.log, "utf8");
       if (content.length > offset) {
         process.stdout.write(content.slice(offset));
         offset = content.length;
-        gracePolls = 0;
-      }
-      if (content.endsWith(settledMarker) && !existsSync(control)) return;
-      if (content.endsWith(failedMarker) && !existsSync(control)) {
-        process.exitCode = 1;
-        return;
       }
     }
-    if (existsSync(control)) {
-      gracePolls = 0;
-    } else {
-      gracePolls += 1;
-      if (gracePolls > 20) fail(msg("watch-not-settled", { id }));
+    if (turn.state === "settled") return;
+    if (turn.state === "failed") {
+      process.exitCode = 1;
+      return;
     }
-    await new Promise((resolvePoll) => setTimeout(resolvePoll, 500));
+    await new Promise((resolvePoll) => setTimeout(resolvePoll, 100));
   }
 }
 
@@ -924,6 +848,10 @@ async function main(argv: string[]): Promise<void> {
     if (values.length > 0) fail(msg("update-usage"));
     return update(home, process.cwd());
   }
+  if (name === "version") {
+    if (values.length > 0) fail(msg("version-usage"));
+    return showVersion(home, fileURLToPath(import.meta.url));
+  }
   if (!name || name === "help") return help();
   const project = process.cwd();
   if (name === "sessions") return listSessions(project);
@@ -932,8 +860,12 @@ async function main(argv: string[]): Promise<void> {
   if (name === "result") {
     const id = values[0];
     if (!id) fail(msg("requires-session-id", { name }));
-    const sessions = sessionDirs(project).sessions;
-    process.stdout.write(`${sessionResult(sessions, id)}\n`);
+    const store = sessionDirs(project).store;
+    store.read(id);
+    const turn = store.readTurn(id);
+    if (turn.state === "starting" || turn.state === "running") fail(msg("session-currently-running", { id }));
+    if (turn.state === "failed") fail(turn.error);
+    process.stdout.write(`${turn.result}\n`);
     return;
   }
   if (name === "merge" || name === "discard") {
@@ -950,7 +882,6 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
   await runPrompt(name, project, values);
-  if (sessionLog) appendFileSync(sessionLog, `${msg("session-settled")}\n`);
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {
@@ -962,8 +893,9 @@ main(process.argv.slice(2)).catch((error: unknown) => {
   // real paths, so symlinked writable roots don't count); say what to do.
   const code = error instanceof Error && "code" in error ? error.code : undefined;
   if (code === "EPERM" || code === "EACCES") process.stderr.write(`${msg("fs-permission-denied-hint")}\n`);
-  // Mirror the failure into the session log so `watch` settles with the real
-  // error instead of timing out with "never settled".
-  if (sessionLog) appendFileSync(sessionLog, `${report}${msg("session-failed")}\n`);
+  if (activeTurn) {
+    activeTurn.append(`${report}${msg("session-failed")}\n`);
+    activeTurn.fail(report.trim());
+  }
   process.exitCode = 1;
 });

@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   createBashTool,
@@ -21,13 +21,8 @@ function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
 }
 
-// Git state pi may write, all scoped to its own session: the linked worktree's
-// git dir (index, HEAD, rebase state), the shared object store, the session
-// branch ref and reflog, and info/exclude. Hooks, config, and other branches
-// are never included, and the worktree-pointer files inside the git dir are
-// explicitly denied because tampering with them would redirect git commands the
-// orchestrator later runs outside the sandbox. A main checkout (git dir ==
-// common dir) gets nothing.
+// Worktree sessions use disposable local clones. Their entire Git directory is
+// private to the session; the project repository never crosses this write seam.
 function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
   const out = (args: string[]): string => {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -35,24 +30,8 @@ function gitPolicyPaths(cwd: string): { allow: string[]; deny: string[] } {
     return result.stdout.trim();
   };
   const gitDir = out(["rev-parse", "--path-format=absolute", "--git-dir"]);
-  const commonDir = out(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (gitDir === commonDir) return { allow: [], deny: [] };
-  // The session branch is pi/<worktree name> by construction. Derived from the
-  // path, not `git branch --show-current`, because a session resumed mid-rebase
-  // has a detached HEAD.
-  const branch = `pi/${basename(cwd)}`;
-  return {
-    allow: [
-      gitDir,
-      join(commonDir, "objects"),
-      join(commonDir, "refs", "heads", branch),
-      join(commonDir, "refs", "heads", `${branch}.lock`),
-      join(commonDir, "logs", "refs", "heads", branch),
-      join(commonDir, "logs", "refs", "heads", `${branch}.lock`),
-      join(commonDir, "info", "exclude"),
-    ],
-    deny: ["config.worktree", "commondir", "gitdir"].map((name) => join(gitDir, name)),
-  };
+  if (gitDir !== resolve(cwd, ".git")) throw new Error(msg("worktree-private-git-required"));
+  return { allow: [gitDir], deny: [] };
 }
 
 function sandboxedBash(): BashOperations {
@@ -83,7 +62,7 @@ function sandboxedBash(): BashOperations {
       if (!existsSync(cwd)) throw new Error(msg("cwd-does-not-exist", { cwd }));
       const timeoutSeconds = timeout && timeout > 0 ? Math.min(timeout, 600) : 600;
       const wrapped = await SandboxManager.wrapWithSandbox(command);
-      return await new Promise((resolve, reject) => {
+      return await new Promise((resolveCommand, reject) => {
         const child = spawn("bash", ["-c", wrapped], {
           cwd,
           detached: true,
@@ -96,16 +75,25 @@ function sandboxedBash(): BashOperations {
           if (child.pid) process.kill(-child.pid, "SIGKILL");
         }, timeoutSeconds * 1000);
         const abort = () => child.pid && process.kill(-child.pid, "SIGKILL");
+        let finished = false;
+        const finish = (complete: () => void) => {
+          if (finished) return;
+          finished = true;
+          SandboxManager.cleanupAfterCommand();
+          complete();
+        };
         signal?.addEventListener("abort", abort, { once: true });
         child.stdout.on("data", onData);
         child.stderr.on("data", onData);
-        child.once("error", reject);
+        child.once("error", (error) => finish(() => reject(error)));
         child.once("close", (code) => {
           clearTimeout(timer);
           signal?.removeEventListener("abort", abort);
-          if (signal?.aborted) reject(new Error(msg("sandboxed-command-aborted")));
-          else if (timedOut) reject(new Error(msg("sandboxed-command-timeout", { seconds: String(timeoutSeconds) })));
-          else resolve({ exitCode: code });
+          finish(() => {
+            if (signal?.aborted) reject(new Error(msg("sandboxed-command-aborted")));
+            else if (timedOut) reject(new Error(msg("sandboxed-command-timeout", { seconds: String(timeoutSeconds) })));
+            else resolveCommand({ exitCode: code });
+          });
         });
       });
     },
@@ -118,7 +106,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   const mode = process.env.PI_FOR_CLAUDE_SANDBOX_MODE;
   if (mode !== "worktree-write" && mode !== "project-write" && mode !== "read-only") throw new Error(msg("sandbox-mode-invalid"));
   const readOnly = mode === "read-only";
-  const runtimePolicy = basePolicy(readOnly);
+  const runtimePolicy = basePolicy(readOnly, mode === "worktree-write");
   const gitPaths = mode === "worktree-write" ? gitPolicyPaths(cwd) : { allow: [], deny: [] };
   const auth = agentPaths().realAuth;
   // The sandbox runtime points the child's TMPDIR at this directory (same

@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createConnection, createServer as createNetServer } from "node:net";
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 
 import { resolveProject, sessionIdFromPlan } from "../src/runner.ts";
@@ -15,12 +15,26 @@ function git(cwd: string, ...args: string[]): string {
 const createdAt = "2026-01-01T00:00:00.000Z";
 
 function fixedSessionPath(sessions: string, id: string): string {
-  return join(sessions, `${id}.pi-for-claude.json`);
+  const dir = join(sessions, id);
+  mkdirSync(dir, { recursive: true });
+  return join(dir, "session.json");
 }
 
 function sessionArtifact(sessions: string, id: string): string {
   const path = fixedSessionPath(sessions, id);
   assert.equal(existsSync(path), true);
+  return path;
+}
+
+function writeSessionFixture(sessions: string, id: string, record: Record<string, unknown>): string {
+  const path = fixedSessionPath(sessions, id);
+  writeFileSync(path, JSON.stringify({
+    schemaVersion: 1,
+    writerVersion: "0.2.0",
+    status: "active",
+    conversation: join(sessions, id, "conversation.jsonl"),
+    ...record,
+  }));
   return path;
 }
 
@@ -113,6 +127,7 @@ function scratchRepo(prefix: string): string {
 function makePiForClaudeHome(root: string): string {
   const piForClaudeHome = join(root, "pi-for-claude-home");
   mkdirSync(join(piForClaudeHome, "prompts"), { recursive: true });
+  writeFileSync(join(piForClaudeHome, "package.json"), '{"name":"pi-for-claude","version":"0.2.0"}\n');
   cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(piForClaudeHome, "prompts/strings.json"));
   cpSync(
     join(import.meta.dirname, "../prompts/pi-for-claude-instructions.md"),
@@ -294,6 +309,26 @@ test("help ignores Markdown documentation in the prompts directory", () => {
   assert.match(output, /implement-in-worktree <plan-file>/);
 });
 
+test("version exposes the running package, revision, executable, and available update", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-version-"));
+  const home = makePiForClaudeHome(root);
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(home, ".git"), "gitdir: fixture\n");
+  writeFileSync(join(bin, "git"), '#!/bin/sh\nprintf "0123456789abcdef0123456789abcdef01234567\\n"\n');
+  writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "0.2.1\\n"\n');
+  chmodSync(join(bin, "git"), 0o755);
+  chmodSync(join(bin, "npm"), 0o755);
+
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const output = execFileSync(process.execPath, [cli, "version"], {
+    cwd: root,
+    env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, PI_FOR_CLAUDE_HOME: home },
+    encoding: "utf8",
+  });
+  assert.equal(output, `Version: 0.2.0\nRevision: 0123456789abcdef0123456789abcdef01234567\nExecutable: ${realpathSync(cli)}\nLatest: 0.2.1\n`);
+});
+
 test("a proxied environment re-execs with NODE_USE_ENV_PROXY and still works", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-proxy-"));
   const piForClaudeHome = makePiForClaudeHome(root);
@@ -322,6 +357,9 @@ test("run creates an isolated worktree and sends the composed prompt through the
   assert.match(output, /Before Pi:\n\+ echo before\nbefore\nImplemented auth\.\nAfter Pi:\n\+ echo after\nafter/);
   assert.match(output, /WARNING: Input shell command failed \(exit 7\), but the run is continuing anyway\./);
   assert.equal(git(worktree, "branch", "--show-current"), "pi/fix-auth");
+  assert.equal(git(worktree, "rev-parse", "--git-dir"), ".git");
+  assert.equal(git(worktree, "rev-parse", "--git-common-dir"), ".git");
+  assert.equal(git(root, "branch", "--list", "pi/fix-auth"), "", "the project repository has no session refs");
   const request = JSON.stringify(modelRequests(model.requestsPath)[0]);
   assert.match(request, /Context generated before Pi runs/);
   assert.match(request, /Expected input failure/);
@@ -375,9 +413,10 @@ test("view exports once by default and live-reloads with --live", async (t) => {
   const commands = join(root, "commands");
   mkdirSync(sessions, { recursive: true });
   mkdirSync(commands);
-  const source = join(sessions, "2026-01-01T00-00-00-000Z_view-me.jsonl");
-  const output = join(sessions, "2026-01-01T00-00-00-000Z_view-me.html");
+  const source = join(sessions, "view-me", "conversation.jsonl");
+  const output = join(sessions, "view-me", "conversation.html");
   const opened = join(root, "opened.txt");
+  writeSessionFixture(sessions, "view-me", { kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt, conversation: source });
   writeFileSync(source, "session data\n");
 
   const fakePi = join(commands, "pi.mjs");
@@ -427,19 +466,23 @@ console.log("Exported to: " + process.argv[4]);
   await new Promise((resolveExit) => viewed.once("exit", resolveExit));
 });
 
-test("view requires exactly one matching session JSONL", () => {
+test("view uses the exact recorded conversation with unrelated JSONLs present", () => {
   const root = realpathSync(scratchRepo("pi-for-claude-view-count-"));
   const sessions = join(root, ".agents", "sessions");
   mkdirSync(sessions, { recursive: true });
-  writeFileSync(join(sessions, "first_same.jsonl"), "first\n");
-  writeFileSync(join(sessions, "second_same.jsonl"), "second\n");
+  const first = join(sessions, "same", "first.jsonl");
+  const second = join(sessions, "same", "second.jsonl");
+  writeSessionFixture(sessions, "same", { kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt, conversation: first });
+  const header = JSON.stringify({ type: "session", version: 3, id: "same", timestamp: createdAt, cwd: root });
+  writeFileSync(first, `${header}\n`);
+  writeFileSync(second, `${header}\n`);
 
   const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "view", "same", "--no-open"], {
     cwd: root,
     encoding: "utf8",
   });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /Expected one Pi JSONL for session 'same', found 2/);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(join(sessions, "same", "first.html")), true);
 });
 
 test("view uses the packaged Pi instead of a PATH executable", () => {
@@ -448,8 +491,9 @@ test("view uses the packaged Pi instead of a PATH executable", () => {
   const commands = join(root, "commands");
   mkdirSync(sessions, { recursive: true });
   mkdirSync(commands);
-  const source = join(sessions, "2026-01-01T00-00-00-000Z_packaged-pi.jsonl");
-  const output = join(sessions, "2026-01-01T00-00-00-000Z_packaged-pi.html");
+  const source = join(sessions, "packaged-pi", "conversation.jsonl");
+  const output = join(sessions, "packaged-pi", "conversation.html");
+  writeSessionFixture(sessions, "packaged-pi", { kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt, conversation: source });
   writeFileSync(source, `${JSON.stringify({ type: "session", version: 3, id: "packaged-pi", timestamp: createdAt, cwd: root })}\n`);
 
   const pathPi = join(commands, "pi");
@@ -548,8 +592,10 @@ test("run edits a non-git project in place and discard preserves its files", (t)
   const sessions = join(root, ".agents/sessions");
   const recordPath = sessionArtifact(sessions, "change");
   const record = JSON.parse(readFileSync(recordPath, "utf8"));
-  assert.equal(recordPath, join(sessions, "change.pi-for-claude.json"));
-  const log = readFileSync(join(sessions, "change.log"), "utf8");
+  assert.equal(recordPath, join(sessions, "change", "session.json"));
+  assert.equal(record.writerVersion, "0.2.0");
+  const turn = JSON.parse(readFileSync(join(sessions, "change", "turn.json"), "utf8"));
+  const log = readFileSync(turn.log, "utf8");
   assert.match(log, /Implemented in place\./);
   assert.match(log, /Session settled\.\n$/);
   assert.match(output, /Implemented in place\./);
@@ -560,7 +606,7 @@ test("run edits a non-git project in place and discard preserves its files", (t)
   assert.equal(existsSync(join(root, ".agents/worktrees/change")), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "change"], { encoding: "utf8", cwd: root }), "Implemented in place.\n");
   assert.match(execFileSync(process.execPath, [cli, "discard", "change"], { encoding: "utf8", cwd: root }), /Discarded 'change'/);
-  assert.equal(existsSync(recordPath), false);
+  assert.equal(JSON.parse(readFileSync(recordPath, "utf8")).status, "closed");
   assert.equal(readFileSync(join(root, "implemented.txt"), "utf8"), "implemented\n");
 });
 
@@ -624,16 +670,16 @@ test("resume rejects a review session", () => {
   const root = scratchRepo("pi-for-claude-review-resume-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
-  writeFileSync(
-    fixedSessionPath(sessions, "review-1"),
-    JSON.stringify({
+  writeSessionFixture(
+    sessions,
+    "review-1",
+    {
       kind: "review",
-      id: "review-1",
       command: "review",
       mainCheckout: root,
       worktree: root,
       createdAt,
-    }),
+    },
   );
 
   const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "resume", "review-1", "Fix it"], {
@@ -655,8 +701,8 @@ test("sessions are ordered by metadata creation time", () => {
     mainCheckout: root,
     worktree: root,
   };
-  writeFileSync(fixedSessionPath(sessions, "older"), JSON.stringify({ ...record, id: "older", createdAt }));
-  writeFileSync(fixedSessionPath(sessions, "newer"), JSON.stringify({ ...record, id: "newer", createdAt: "2026-01-02T00:00:00.000Z" }));
+  writeSessionFixture(sessions, "older", { ...record, createdAt });
+  writeSessionFixture(sessions, "newer", { ...record, createdAt: "2026-01-02T00:00:00.000Z" });
 
   const output = execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "sessions"], { encoding: "utf8", cwd: root });
   assert.deepEqual(output.trim().split("\n").map((line) => line.split("\t")[0]), ["newer", "older"]);
@@ -666,10 +712,7 @@ test("plain session ids do not match a longer hyphenated id", () => {
   const root = scratchRepo("pi-for-claude-exact-session-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
-  writeFileSync(
-    fixedSessionPath(sessions, "fix-auth"),
-    JSON.stringify({ kind: "review", id: "fix-auth", command: "review", mainCheckout: root, worktree: root, createdAt }),
-  );
+  writeSessionFixture(sessions, "fix-auth", { kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt });
 
   const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "discard", "auth"], {
     encoding: "utf8",
@@ -685,10 +728,7 @@ test("session metadata requires a real canonical timestamp", () => {
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const path = fixedSessionPath(sessions, "invalid");
-  writeFileSync(
-    path,
-    JSON.stringify({ kind: "review", id: "invalid", command: "review", mainCheckout: root, worktree: root, createdAt: "2026-99-99T99:99:99.999Z" }),
-  );
+  writeSessionFixture(sessions, "invalid", { kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt: "2026-99-99T99:99:99.999Z" });
 
   const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "discard", "invalid"], {
     encoding: "utf8",
@@ -696,6 +736,20 @@ test("session metadata requires a real canonical timestamp", () => {
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Malformed session metadata/);
+});
+
+test("session metadata rejects unversioned writers clearly", () => {
+  const root = scratchRepo("pi-for-claude-unversioned-session-");
+  const sessions = join(root, ".agents/sessions");
+  const path = fixedSessionPath(sessions, "old");
+  writeFileSync(path, JSON.stringify({ kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt }));
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "discard", "old"], {
+    encoding: "utf8",
+    cwd: root,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /uses schema unversioned; this installation supports schema 1/);
 });
 
 test("implement-in-worktree requires git", () => {
@@ -763,7 +817,8 @@ test("session launch fails its auth write preflight before creating artifacts", 
     assert.match(result.stderr, /auth\.json/);
     assert.match(result.stderr, /auth\.json\.lock/);
     assert.match(result.stderr, /pi-for-claude setup/);
-    assert.equal(existsSync(join(root, ".agents")), false);
+    const turn = JSON.parse(readFileSync(join(root, ".agents", "sessions", "plan", "turn.json"), "utf8"));
+    assert.equal(turn.state, "failed");
   } finally {
     chmodSync(agentDir, 0o755);
   }
@@ -804,14 +859,13 @@ test("steer, queue, and interrupt authenticate over the control port", async (t)
   const root = scratchRepo("pi-for-claude-control-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
-  writeFileSync(fixedSessionPath(sessions, "controlled"), JSON.stringify({
+  writeSessionFixture(sessions, "controlled", {
     kind: "in-place",
-    id: "controlled",
     command: "run",
     mainCheckout: root,
     worktree: root,
     createdAt,
-  }));
+  });
   const requests: unknown[] = [];
   const server = createNetServer((socket) => {
     let input = "";
@@ -829,7 +883,7 @@ test("steer, queue, and interrupt authenticate over the control port", async (t)
   const address = server.address();
   assert(address && typeof address !== "string");
   const token = "a".repeat(64);
-  writeFileSync(join(sessions, "controlled.ctl"), JSON.stringify({ port: address.port, token }));
+  writeFileSync(join(sessions, "controlled", "control.json"), JSON.stringify({ port: address.port, token }));
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
   const runControl = (...args: string[]) => new Promise<void>((resolveRun, reject) => {
     const child = spawn(process.execPath, [cli, ...args], { cwd: root, stdio: "ignore" });
@@ -863,7 +917,8 @@ test("a live control port blocks a new run; a stale one is cleaned up", async (t
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   assert(address && typeof address !== "string");
-  writeFileSync(join(sessions, "live.ctl"), JSON.stringify({ port: address.port, token: "a".repeat(64) }));
+  mkdirSync(join(sessions, "live"), { recursive: true });
+  writeFileSync(join(sessions, "live", "control.json"), JSON.stringify({ port: address.port, token: "a".repeat(64) }));
   try {
     const blocked = run("live.md");
     assert.equal(blocked.status, 1);
@@ -873,13 +928,15 @@ test("a live control port blocks a new run; a stale one is cleaned up", async (t
   }
 
   writeFileSync(join(root, "stale.md"), "Do the thing.\n");
-  writeFileSync(join(sessions, "stale.ctl"), JSON.stringify({ port: address.port, token: "b".repeat(64) }));
+  mkdirSync(join(sessions, "stale"), { recursive: true });
+  writeFileSync(join(sessions, "stale", "control.json"), JSON.stringify({ port: address.port, token: "b".repeat(64) }));
   const proceeded = run("stale.md");
   assert.equal(proceeded.status, 0, proceeded.stderr);
   assert.match(proceeded.stdout, /Done\./, "the stale port must be removed so the run reaches the model");
 
   writeFileSync(join(root, "malformed.md"), "Do the thing.\n");
-  writeFileSync(join(sessions, "malformed.ctl"), "not json");
+  mkdirSync(join(sessions, "malformed"), { recursive: true });
+  writeFileSync(join(sessions, "malformed", "control.json"), "not json");
   const malformed = run("malformed.md");
   assert.equal(malformed.status, 0, malformed.stderr);
   assert.match(malformed.stdout, /Done\./, "an unparseable control file must be treated as stale");
@@ -899,7 +956,7 @@ test("a wrong control token is refused without steering the session", async (t) 
   });
   t.after(() => child.kill());
 
-  const controlPath = join(sessions, "token.ctl");
+  const controlPath = join(sessions, "token", "control.json");
   const deadline = Date.now() + 10000;
   while (!existsSync(controlPath)) {
     if (Date.now() > deadline) assert.fail("timed out waiting for control file");
@@ -972,7 +1029,6 @@ test("resume refuses a session whose conversation log is missing", () => {
   mkdirSync(sessions, { recursive: true });
   const record = {
     kind: "worktree",
-    id: "lost",
     command: "implement-in-worktree",
     mainCheckout: root,
     worktree: root,
@@ -981,7 +1037,7 @@ test("resume refuses a session whose conversation log is missing", () => {
     mergeState: { kind: "unrebased" },
     createdAt,
   };
-  writeFileSync(fixedSessionPath(sessions, "lost"), JSON.stringify(record));
+  writeSessionFixture(sessions, "lost", record);
 
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
   const resume = spawnSync(process.execPath, [cli, "resume", "lost", "keep going"], {
@@ -991,7 +1047,7 @@ test("resume refuses a session whose conversation log is missing", () => {
     timeout: 15000,
   });
   assert.equal(resume.status, 1);
-  assert.match(resume.stderr, /Expected one Pi JSONL for session 'lost', found 0/);
+  assert.match(resume.stderr, /Session conversation does not exist/);
 });
 
 test("run warns when the SDK event stream goes silent", () => {
@@ -1028,25 +1084,23 @@ Date.now = () => {
   }
 });
 
-test("discard removes a review session's record without touching git", () => {
+test("discard closes a review session without touching git", () => {
   const root = scratchRepo("pi-for-claude-direct-");
   const sessions = join(root, ".agents/sessions");
   mkdirSync(sessions, { recursive: true });
   const record = {
     kind: "review",
-    id: "review-1",
     command: "review",
     mainCheckout: root,
     worktree: root,
     createdAt,
   };
-  const recordPath = fixedSessionPath(sessions, "review-1");
-  writeFileSync(recordPath, JSON.stringify(record));
+  const recordPath = writeSessionFixture(sessions, "review-1", record);
 
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
   const output = execFileSync(process.execPath, [cli, "discard", "review-1"], { encoding: "utf8", cwd: root });
   assert.match(output, /Discarded 'review-1'/);
-  assert.equal(existsSync(recordPath), false);
+  assert.equal(JSON.parse(readFileSync(recordPath, "utf8")).status, "closed");
   assert.equal(git(root, "status", "--porcelain"), "");
 });
 
@@ -1071,7 +1125,7 @@ test("watch follows a session launched outside a Monitor and exits when it settl
 
   try {
     const sessions = join(realpathSync(root), ".agents/sessions");
-    await waitUntil(() => existsSync(sessions) && readdirSync(sessions).some((file) => file.endsWith(".log")), "the session log");
+    await waitUntil(() => existsSync(join(sessions, "watched", "turn.json")), "the session turn");
     const watch = spawn(process.execPath, [cli, "watch", "watched"], { cwd: root, env });
     let stdout = "";
     watch.stdout.setEncoding("utf8");
@@ -1091,11 +1145,57 @@ test("watch follows a session launched outside a Monitor and exits when it settl
   }
 });
 
+test("watch binds to the active resume turn and result rejects partial state", async (t) => {
+  const root = scratchRepo("pi-for-claude-resume-watch-");
+  const plan = join(root, "resumed.md");
+  writeFileSync(plan, "Do the thing.");
+  const model = startModelServer(root, [
+    { kind: "text", text: "First result." },
+    { kind: "text", text: "Second result.", delayMs: 1500 },
+  ]);
+  t.after(model.stop);
+
+  const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
+  const env = { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) };
+  execFileSync(process.execPath, [cli, "run", plan], { cwd: root, env });
+  const turnPath = join(root, ".agents", "sessions", "resumed", "turn.json");
+  const firstTurn = JSON.parse(readFileSync(turnPath, "utf8"));
+  const resume = spawn(process.execPath, [cli, "resume", "resumed", "Continue."], { cwd: root, env, stdio: "ignore" });
+  t.after(() => resume.kill());
+
+  const deadline = Date.now() + 15000;
+  let current = firstTurn;
+  while (current.id === firstTurn.id) {
+    if (Date.now() > deadline) assert.fail("timed out waiting for resume turn");
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    current = JSON.parse(readFileSync(turnPath, "utf8"));
+  }
+
+  const duplicate = spawnSync(process.execPath, [cli, "resume", "resumed", "Compete."], { cwd: root, env, encoding: "utf8" });
+  assert.equal(duplicate.status, 1);
+  assert.match(duplicate.stderr, /currently running/);
+  assert.equal(JSON.parse(readFileSync(turnPath, "utf8")).id, current.id, "a competing resume must not replace the active turn");
+
+  const partial = spawnSync(process.execPath, [cli, "result", "resumed"], { cwd: root, env, encoding: "utf8" });
+  assert.equal(partial.status, 1);
+  assert.match(partial.stderr, /currently running/);
+
+  const watch = spawn(process.execPath, [cli, "watch", "resumed"], { cwd: root, env });
+  let watched = "";
+  watch.stdout.setEncoding("utf8");
+  watch.stdout.on("data", (chunk: string) => { watched += chunk; });
+  const watchExit = await new Promise<number | null>((resolveExit) => watch.once("exit", resolveExit));
+  assert.equal(watchExit, 0);
+  assert.match(watched, /Second result\./);
+  assert.doesNotMatch(watched, /First result\./);
+  assert.equal(execFileSync(process.execPath, [cli, "result", "resumed"], { cwd: root, env, encoding: "utf8" }), "Second result.\n");
+});
+
 test("run prints each consult question once with its answer path", async (t) => {
   const root = scratchRepo("pi-for-claude-consult-");
   const sessions = join(realpathSync(root), ".agents/sessions");
   const plan = join(root, "consult.md");
-  const answer = join(sessions, "consult.answer.md");
+  const answer = join(sessions, "consult", "consult.answer.md");
   writeFileSync(plan, "Ask the orchestrator.");
   const model = startModelServer(root, [
     { kind: "tool", name: "consult_orchestrator", arguments: { question: "Which auth flow?" } },
