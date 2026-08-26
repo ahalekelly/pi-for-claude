@@ -698,6 +698,26 @@ test("session metadata requires a real canonical timestamp", () => {
   assert.match(result.stderr, /Malformed session metadata/);
 });
 
+test("sessions explains metadata file name mismatches without a partial listing", () => {
+  const root = scratchRepo("pi-for-claude-session-file-name-mismatch-");
+  const sessions = join(root, ".agents/sessions");
+  mkdirSync(sessions, { recursive: true });
+  const legacyPath = join(sessions, "2026-08-24T08-16-09-781Z-legacy.pi-for-claude.json");
+  const record = { kind: "in-place", command: "run", mainCheckout: root, worktree: root, createdAt };
+  writeFileSync(legacyPath, JSON.stringify({ ...record, id: "legacy" }));
+  writeFileSync(fixedSessionPath(sessions, "ok"), JSON.stringify({ ...record, id: "ok" }));
+
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "sessions"], {
+    encoding: "utf8",
+    cwd: root,
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.ok(result.stderr.includes("'legacy'"));
+  assert.ok(result.stderr.includes(legacyPath));
+  assert.ok(result.stderr.includes(`Rename it to ${fixedSessionPath(sessions, "legacy")}`));
+});
+
 test("implement-in-worktree requires git", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-no-git-"));
   writeFileSync(join(root, "change.md"), "Create a file.\n");

@@ -152,7 +152,9 @@ function readSessionFile(path: string): Session {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(session.id) || Number.isNaN(timestamp) || new Date(timestamp).toISOString() !== session.createdAt) {
     fail(msg("malformed-session-metadata", { path }));
   }
-  if (basename(path) !== `${session.id}.pi-for-claude.json`) fail(msg("malformed-session-metadata", { path }));
+  if (basename(path) !== `${session.id}.pi-for-claude.json`) {
+    fail(msg("session-file-name-mismatch", { id: session.id, path, expected: join(dirname(path), `${session.id}.pi-for-claude.json`) }));
+  }
   return session;
 }
 
