@@ -2,11 +2,11 @@
 
 Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
-`implement-in-worktree` requires a git repository and creates a persistent worktree session under the launch checkout's `.agents/`; use it to run multiple agents in parallel. `run` edits the project directory in place and also works without git; use it for non-git directories and single-subagent work. Run commands from the project root: the working tree you launch from is the project — a linked worktree keeps its own sessions, pi worktrees, and merge target — and pi-for-claude refuses to run from a non-ignored subdirectory of a checkout. A gitignored subdirectory counts as a standalone non-git project, so scratch dirs like `~/.claude-work/jobs/...` work as-is.
+`implement-in-worktree` requires git and gives each session a private checkout under the launch checkout's `.agents/`; use it to run agents in parallel. `run` edits the project directory in place and also works without git. Run commands from the project root: the checkout you launch from is the project, so a linked worktree keeps its own sessions, private Pi checkouts, and merge target. A gitignored subdirectory counts as a standalone non-git project.
 
-## Worktree workflow
+## Isolated Git workflow
 
-1. Write the plan to `.agents/plans/<session>.md` in the git project directory. The plan basename becomes the session id, the branch `pi/<session>`, and the worktree `<project>/.agents/worktrees/<session>`, so pick a unique name — reusing an existing plan basename fails.
+1. Write the plan to `.agents/plans/<session>.md` in the git project directory. The plan basename becomes the session id, private branch `pi/<session>`, and checkout `<project>/.agents/worktrees/<session>`, so pick a unique name.
 
    Plan length should be proportional to the task; half as many tokens as the expected diff is a rough prior.
 
@@ -19,22 +19,22 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
    Pi's command sandbox cannot start inside Claude Code's sandbox, and Monitor is always sandboxed, so pi-for-claude refuses to start sessions there.
 
-3. Pi can call `consult_orchestrator(question)`, which writes `<session>.question.md` and blocks up to ten minutes for your response in `<session>.answer.md`. The Monitor emits the question and answer-file path. Restate both in a user reply — the user cannot see Monitor event bodies. `--no-consult` runs never ask.
+3. Pi can call `consult_orchestrator(question)`, which writes question and answer files under `.agents/sessions/<session>/` and waits up to ten minutes. The Monitor emits the question and answer-file path. Restate both in a user reply — the user cannot see Monitor event bodies. With `--no-consult`, Pi proceeds without asking.
 
 4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt`.
 
-5. When it completes, review the work: Pi finishes with everything committed on its private branch, and its commits and a diffstat against the project's branch are appended to the response. Check for errors, edge cases, subtle bugs, and deviations from your intent — GPT-5.6 can reward hack without mentioning it. Don't dirty the worktree while reviewing (`npm ci`, not `npm install`), and don't commit to files a live session is editing — queue changes into the session or hold them until after the merge. If `merge` refuses because the project checkout has uncommitted edits: `git stash`, merge, `git stash pop`.
+5. When it completes, review the work: Pi finishes with everything committed in its private checkout, and its commits and a diffstat against the project branch are appended to the response. Check errors, edge cases, and deviations from the plan. Keep the private checkout clean while reviewing (`npm ci`, not `npm install`) and queue changes into a live session rather than editing its files yourself. If `merge` refuses because the project checkout has uncommitted edits: `git stash`, merge, `git stash pop`.
 
-6. Continue a closed session with the same launch pattern — same conversation and worktree:
+6. Continue a settled session with the same launch pattern — same conversation and checkout:
 
    ```js
    Bash({ command: "nohup pi-for-claude resume <session> \"<follow-up prompt>\" > /dev/null 2>&1 &", dangerouslyDisableSandbox: true })
    Monitor({ command: "pi-for-claude watch <session>", description: "Pi session <session>", persistent: true, timeout_ms: 300000 })
    ```
 
-7. Accept with `pi-for-claude merge <session>`: it rebases onto the project checkout's current branch, fast-forwards pi's commits onto it verbatim, and deletes the worktree and branch.
+7. Accept with `pi-for-claude merge <session>`: it rebases in the private repository, imports the verified commit, fast-forwards the project branch, and moves the private checkout to the trash.
 
-8. Discard with `pi-for-claude discard <session>` — never delete the worktree directory yourself. After merge or discard the session cannot be resumed; its logs remain under `.agents/sessions/`.
+8. Discard with `pi-for-claude discard <session>`. After merge or discard the session cannot be resumed; its conversation, turn state, result, and logs remain under `.agents/sessions/<session>/`.
 
 ## In-place workflow
 
@@ -49,23 +49,24 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 3. When Pi finishes, the changes are shown with `git status` and `git diff` if the project directory is itself a git checkout; a standalone project (including a gitignored scratch dir inside some other repository) shows no git output. Use `resume` for follow-ups.
 
-4. Close with `pi-for-claude discard <session>`: it removes only session metadata and leaves project files in place; without a worktree there is no `merge`.
+4. Close with `pi-for-claude discard <session>`: it closes the session and leaves project files in place; without a private checkout there is no `merge`.
 
 ## Command reference
 
-- `implement-in-worktree <plan-file>` — implement a plan in a new worktree and session
+- `implement-in-worktree <plan-file>` — implement a plan in a private Git checkout
 - `run <plan-file>` — implement a plan directly in the project directory
-- `resume <session> <follow-up>` — continue the same pi conversation in its worktree or project directory
-- `review [session] [focus] [--base <ref>]` — read-only review of the project or a session worktree
+- `resume <session> <follow-up>` — continue the same Pi conversation in its checkout or project directory
+- `review [session] [focus] [--base <ref>]` — read-only review of the project or private session checkout
 - `sessions` — list session ids, originating commands, and directories
-- `result <session>` — print the last completed assistant response
+- `result <session>` — print the persisted result from the last settled turn; reject a running or failed turn
 - `view <session> [--no-open]` — export the conversation to HTML beside its JSONL and open it
-- `watch <session>` — replay and follow a session's output; exits when the session settles, or exits 1 when it fails
+- `watch <session>` — replay and follow the current turn; exits when that turn settles, or exits 1 when it fails
 - `steer <session> <message>` — deliver a message after the next tool call
 - `queue <session> <message>` — queue a message until the current agent task finishes
 - `interrupt <session>` — abort the active turn; the session remains resumable
-- `merge <session>` — rebase, fast-forward the session's commits onto the project's branch, and clean up the worktree and branch
-- `discard <session>` — force-remove the worktree and branch, or close a review or in-place session by removing its metadata record
+- `merge <session>` — import verified commits, fast-forward the project branch, and close the session
+- `discard <session>` — close the session and move its private checkout to the trash
+- `version` — show the running package version, revision, executable, and latest published version
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
@@ -80,7 +81,5 @@ Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
 This list is generated from Pi's saved `/scoped-models` configuration.
 
-- `openai-codex/gpt-5.6-sol`
-- `openai-codex/gpt-5.6-terra`
-- `openai-codex/gpt-5.6-luna`
+Pi has no saved model scope.
 <!-- pi-scoped-models:end -->

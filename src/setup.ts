@@ -4,9 +4,11 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import { agentPaths } from "./agent-paths.ts";
 import { renderString } from "./core.ts";
+import { refreshInstructions } from "./instructions.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -43,6 +45,29 @@ function appendMissing(path: string, lines: string[]): boolean {
   mkdirSync(dirname(path), { recursive: true });
   const separator = source && !source.endsWith("\n") && !source.endsWith("\r") ? eol : "";
   writeFileSync(path, `${source}${separator}${missing.join(eol)}${eol}`);
+  return true;
+}
+
+function setInstructionsInclude(path: string, include: string): boolean {
+  const source = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source ? source.split(/\r?\n/) : [];
+  if (lines.at(-1) === "") lines.pop();
+  const updated: string[] = [];
+  let included = false;
+  for (const line of lines) {
+    if (!line.includes("pi-for-claude-instructions.md")) {
+      updated.push(line);
+      continue;
+    }
+    if (!included) updated.push(include);
+    included = true;
+  }
+  if (!included) updated.push(include);
+  const content = `${updated.join(eol)}${eol}`;
+  if (content === source) return false;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
   return true;
 }
 
@@ -108,15 +133,9 @@ export function setup(home: string): void {
   if (dependencies.errors.length === 0) process.stdout.write(`${msg(home, "setup-sandbox-dependencies-configured")}\n`);
 
   const claudePath = join(homeDir, ".claude", "CLAUDE.md");
-  const claudeSource = existsSync(claudePath) ? readFileSync(claudePath, "utf8") : "";
-  const existingInclude = claudeSource.split(/\r?\n/).find((line) => line.includes("pi-for-claude-instructions.md"));
-  if (existingInclude) {
-    process.stdout.write(`${msg(home, "setup-claude-configured", { line: existingInclude })}\n`);
-  } else {
-    const include = `@${join(home, "prompts", "pi-for-claude-instructions.md")}`;
-    appendMissing(claudePath, [include]);
-    process.stdout.write(`${msg(home, "setup-claude-fixed", { path: claudePath })}\n`);
-  }
+  const include = `@${refreshInstructions(SettingsManager, home, process.cwd())}`;
+  const instructionsChanged = setInstructionsInclude(claudePath, include);
+  process.stdout.write(`${msg(home, instructionsChanged ? "setup-claude-fixed" : "setup-claude-configured", { path: claudePath, line: include })}\n`);
 
   const ignorePath = gitIgnorePath(homeDir, home);
   const ignoreChanged = appendMissing(ignorePath, [".agents/sessions/", ".agents/plans/", ".agents/worktrees/"]);

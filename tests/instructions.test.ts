@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
-import { locklessSettings, renderScopedModels } from "../src/instructions.ts";
+import { locklessSettings, refreshInstructions, renderScopedModels } from "../src/instructions.ts";
 
 test("renderScopedModels inserts and replaces Pi's saved model scope", () => {
   const first = renderScopedModels("# Instructions\n", ["openai-codex/gpt-5.6-sol", "google/gemini-flash-latest"]);
@@ -37,4 +37,26 @@ test("locklessSettings reads global and project settings without filesystem writ
   assert.equal(settings.getRetryEnabled(), false);
   assert.equal(settings.getFollowUpMode(), "one-at-a-time");
   assert.deepEqual(readdirSync(agentDir), before);
+});
+
+test("refreshInstructions writes user state without mutating the package template", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-instructions-"));
+  const home = join(root, "package");
+  const configuredAgentDir = join(root, "agent");
+  mkdirSync(join(home, "prompts"), { recursive: true });
+  mkdirSync(configuredAgentDir);
+  const templatePath = join(home, "prompts", "pi-for-claude-instructions.md");
+  writeFileSync(templatePath, "# Instructions\n");
+  writeFileSync(join(configuredAgentDir, "settings.json"), JSON.stringify({ enabledModels: ["google/gemini-flash-latest"] }));
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = configuredAgentDir;
+  try {
+    const output = refreshInstructions(SettingsManager, home, root);
+    assert.equal(output, join(configuredAgentDir, "pi-for-claude-instructions.md"));
+    assert.match(readFileSync(output, "utf8"), /google\/gemini-flash-latest/);
+    assert.equal(readFileSync(templatePath, "utf8"), "# Instructions\n");
+  } finally {
+    if (configured === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = configured;
+  }
 });

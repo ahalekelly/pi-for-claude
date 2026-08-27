@@ -49,9 +49,11 @@ test("setup configures a fresh machine and is idempotent", () => {
 
   const settingsPath = join(home, ".claude", "settings.json");
   const claudePath = join(home, ".claude", "CLAUDE.md");
+  const instructionsPath = join(agentDir, "pi-for-claude-instructions.md");
   const ignorePath = join(home, ".config", "git", "ignore");
   assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), expectedSettings(agentDir));
-  assert.equal(readFileSync(claudePath, "utf8"), `@${join(packageHome, "prompts", "pi-for-claude-instructions.md")}\n`);
+  assert.equal(readFileSync(claudePath, "utf8"), `@${instructionsPath}\n`);
+  assert.match(readFileSync(instructionsPath, "utf8"), /Pi has no saved model scope/);
   assert.deepEqual(readFileSync(ignorePath, "utf8").trim().split("\n"), ignored);
 
   const before = [settingsPath, claudePath, ignorePath].map((path) => readFileSync(path, "utf8"));
@@ -97,16 +99,16 @@ test("setup rejects unparseable settings before writing any setup files", () => 
   assert.equal(existsSync(join(home, ".config", "git", "ignore")), false);
 });
 
-test("setup keeps an existing instructions include when its install path differs", () => {
-  const { home, run } = machine();
+test("setup replaces an obsolete package instructions include", () => {
+  const { home, agentDir, run } = machine();
   const claudePath = join(home, ".claude", "CLAUDE.md");
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(claudePath, "# Global\n@/old/install/prompts/pi-for-claude-instructions.md\n");
 
   const result = run();
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /already configured.*old\/install/);
-  assert.equal(readFileSync(claudePath, "utf8"), "# Global\n@/old/install/prompts/pi-for-claude-instructions.md\n");
+  assert.match(result.stdout, /Claude instructions: configured/);
+  assert.equal(readFileSync(claudePath, "utf8"), `# Global\n@${join(agentDir, "pi-for-claude-instructions.md")}\n`);
 });
 
 test("setup respects the configured global git excludes file", () => {

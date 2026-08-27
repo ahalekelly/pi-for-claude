@@ -33,6 +33,8 @@ Configure Claude Code's sandbox, check Pi's command-sandbox dependencies, and in
 pi-for-claude setup
 ```
 
+`setup` generates the model-scoped instructions in Pi's user configuration; the installed package remains unchanged.
+
 Then start Pi and log in to your model providers of choice.
 
 Skill files are automatically loaded from the typical Pi locations:

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -33,12 +33,14 @@ export function locklessSettings(Settings: SettingsManagerClass, cwd: string, co
   return Settings.fromStorage(storage, { projectTrusted });
 }
 
-export function refreshInstructions(Settings: SettingsManagerClass, home: string, cwd: string): void {
+export function refreshInstructions(Settings: SettingsManagerClass, home: string, cwd: string): string {
   const settings = locklessSettings(Settings, cwd, agentDir(), false);
   const error = settings.drainErrors().find(({ scope }) => scope === "global");
   if (error) throw error.error;
-  const instructionsPath = join(home, "prompts", "pi-for-claude-instructions.md");
-  const current = readFileSync(instructionsPath, "utf8");
-  const updated = renderScopedModels(current, settings.getGlobalSettings().enabledModels ?? []);
-  if (updated !== current) writeFileSync(instructionsPath, updated);
+  const instructionsPath = join(agentDir(), "pi-for-claude-instructions.md");
+  const template = readFileSync(join(home, "prompts", "pi-for-claude-instructions.md"), "utf8");
+  const instructions = renderScopedModels(template, settings.getGlobalSettings().enabledModels ?? []);
+  mkdirSync(agentDir(), { recursive: true });
+  if (!existsSync(instructionsPath) || readFileSync(instructionsPath, "utf8") !== instructions) writeFileSync(instructionsPath, instructions);
+  return instructionsPath;
 }
