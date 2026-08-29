@@ -7,6 +7,7 @@ import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 
 import { resolveProject, sessionIdFromPlan } from "../src/runner.ts";
+import { SessionStore } from "../src/session-store.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -1285,4 +1286,10 @@ test("run's git output covers a checkout root but never the checkout enclosing a
   assert.equal(checkout.status, 0, checkout.stderr);
   assert.match(checkout.stdout, /\+ git status --short/);
   assert.match(checkout.stdout, /M README\.md/);
+});
+
+test("SessionStore.exists treats free text as a missing session rather than an error", () => {
+  const store = new SessionStore(mkdtempSync(join(tmpdir(), "pi-sessions-")), resolve(import.meta.dirname, ".."), "test");
+  assert.equal(store.exists("Review the commits since c2c6609; report file:line problems."), false);
+  assert.equal(store.exists("no-such-session"), false);
 });

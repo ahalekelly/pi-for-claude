@@ -6,6 +6,8 @@ import { Check } from "typebox/value";
 
 import { renderString } from "./core.ts";
 
+const sessionIdPattern = /^[a-z0-9][a-z0-9-]*$/;
+
 const mergeStateSchema = Type.Union([
   Type.Object({ kind: Type.Literal("unrebased") }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal("rebased"), onto: Type.String() }, { additionalProperties: false }),
@@ -77,7 +79,7 @@ export class SessionStore {
   }
 
   private dir(id: string): string {
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error(this.msg("unknown-session", { id }));
+    if (!sessionIdPattern.test(id)) throw new Error(this.msg("unknown-session", { id }));
     return join(this.root, id);
   }
 
@@ -97,7 +99,7 @@ export class SessionStore {
   }
 
   exists(id: string): boolean {
-    return existsSync(this.metadataPath(id));
+    return sessionIdPattern.test(id) && existsSync(this.metadataPath(id));
   }
 
   read(id: string): Session {

@@ -56,7 +56,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 - `implement-in-worktree <plan-file>` — implement a plan in a private Git checkout
 - `run <plan-file>` — implement a plan directly in the project directory
 - `resume <session> <follow-up>` — continue the same Pi conversation in its checkout or project directory
-- `review [session] [focus] [--base <ref>]` — read-only review of the project or private session checkout
+- `review [session] [focus] [--base <ref>]` — read-only review of the project or private session checkout; the first argument is focus text unless it names an existing session
 - `sessions` — list session ids, originating commands, and directories
 - `result <session>` — print the persisted result from the last settled turn; reject a running or failed turn
 - `view <session> [--no-open]` — export the conversation to HTML beside its JSONL and open it

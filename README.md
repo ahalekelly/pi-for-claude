@@ -134,7 +134,7 @@ Prompt commands call a model:
 - `run <plan-file>` — implement a task in the current project
 - `implement-in-worktree <plan-file>` — implement a task in a private Git checkout
 - `resume <session> <follow-up>` — continue an implementation session
-- `review [session] [focus] [--base <ref>]` — review the current project or a private session checkout without writing to it
+- `review [session] [focus] [--base <ref>]` — review the current project or a private session checkout without writing to it; the first argument is focus text unless it names an existing session
 
 Built-in commands do not call a model:
 
