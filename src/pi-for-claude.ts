@@ -8,7 +8,7 @@ import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Check } from "typebox/value";
@@ -493,7 +493,7 @@ function preflightAuthWrite(): void {
 
 async function preflightSandbox(readOnly: boolean): Promise<void> {
   try {
-    await SandboxManager.initialize(basePolicy(readOnly) as unknown as SandboxRuntimeConfig);
+    await SandboxManager.initialize(basePolicy(readOnly));
   } catch (error) {
     fail(msg("sandbox-preflight-failed", { error: error instanceof Error ? error.message : String(error) }));
   } finally {

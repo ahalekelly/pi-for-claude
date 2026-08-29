@@ -2,11 +2,7 @@ import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 
 import type { FilesystemPolicy } from "./extensions/sandbox/path-guard.ts";
 
-// The runtime restricts network only when allowedDomains is set.
-export type Policy = Omit<SandboxRuntimeConfig, "filesystem" | "network"> & {
-  network: Record<string, never>;
-  filesystem: Omit<FilesystemPolicy, "gitWrite">;
-};
+export type Policy = SandboxRuntimeConfig & { filesystem: Omit<FilesystemPolicy, "gitWrite"> };
 
 export const sandboxGitExcludes = [
   ".bash_profile",
@@ -27,7 +23,10 @@ export const sandboxGitExcludes = [
 ];
 
 const policy = {
-  network: {},
+  // The runtime restricts network only when allowedDomains is set; an empty
+  // object leaves command network unrestricted while keeping the filesystem
+  // sandbox. Its type marks allowedDomains required, hence the cast.
+  network: {} as SandboxRuntimeConfig["network"],
   filesystem: {
     denyRead: [
       "~/.agents/secrets.env",
@@ -59,7 +58,7 @@ export function sandboxTmpdir(): string {
 // A fresh copy per session: the extension appends session-specific paths.
 export function basePolicy(readOnly: boolean, privateGit: boolean = false): Policy {
   return {
-    network: { ...policy.network },
+    network: policy.network,
     filesystem: {
       denyRead: [...policy.filesystem.denyRead],
       allowWrite: readOnly ? ["/tmp/claude", "~/.Trash", "~/.local/share/Trash"] : [...policy.filesystem.allowWrite],

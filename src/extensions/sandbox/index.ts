@@ -8,7 +8,7 @@ import {
   type BashOperations,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
 import { agentPaths } from "../../agent-paths.ts";
 import { renderString } from "../../core.ts";
@@ -148,7 +148,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     try {
       mkdirSync(tmpdir, { recursive: true });
-      await SandboxManager.initialize(runtimePolicy as unknown as SandboxRuntimeConfig);
+      await SandboxManager.initialize(runtimePolicy);
       status = { state: "ready" };
       ctx.ui.notify(msg("sandbox-initialized", { mode }), "info");
     } catch (error) {
