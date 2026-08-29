@@ -8,7 +8,7 @@ import { createConnection, createServer } from "node:net";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Check } from "typebox/value";
@@ -37,18 +37,6 @@ type Flags = {
   base: string;
   consult: boolean;
 };
-
-// Sandboxes provide network only through the proxy in HTTPS_PROXY, which
-// Node's fetch honors only when NODE_USE_ENV_PROXY is set before the process
-// starts — so a proxied environment re-execs with it set. Without this, every
-// model call fails with "fetch failed" while curl works.
-if (process.env.HTTPS_PROXY && !process.env.NODE_USE_ENV_PROXY) {
-  const reexec = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-    env: { ...process.env, NODE_USE_ENV_PROXY: "1" },
-    stdio: "inherit",
-  });
-  process.exit(reexec.status ?? 1);
-}
 
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
 const version = packageVersion(home);
@@ -505,7 +493,7 @@ function preflightAuthWrite(): void {
 
 async function preflightSandbox(readOnly: boolean): Promise<void> {
   try {
-    await SandboxManager.initialize(basePolicy(readOnly));
+    await SandboxManager.initialize(basePolicy(readOnly) as unknown as SandboxRuntimeConfig);
   } catch (error) {
     fail(msg("sandbox-preflight-failed", { error: error instanceof Error ? error.message : String(error) }));
   } finally {

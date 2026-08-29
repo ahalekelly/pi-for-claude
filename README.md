@@ -9,7 +9,7 @@ Features:
 - Resume Pi sessions with their full conversation context
 - View Pi agent sessions live in your browser
 - Isolated Git checkouts for Pi agents, with verified commit handoff and basic rebases
-- Sandbox each run with scoped filesystem and network access
+- Sandbox each run with scoped filesystem access
 - Built-in web research and browser automation tools
 - A simple format to save prompts and workflows. Separate model and sandbox settings for each saved prompt
 
@@ -185,8 +185,8 @@ Each prompt chooses one sandbox:
 - `worktree-write` can edit and commit only inside its private session checkout
 - `read-only` cannot edit the project
 
-All modes block configured secret paths, restrict command network access to configured domains, and fail closed if the operating-system sandbox cannot start. `pi-for-claude setup` grants the wrapper write access to Pi's agent directory and local control-channel binding while denying Claude direct reads of the auth files. The Pi agent runtime retains access to its model provider.
+All modes restrict filesystem access, leave command network access unrestricted, and fail closed if the operating-system sandbox cannot start. Paths in `denyRead` protect credentials. `pi-for-claude setup` grants the wrapper write access to Pi's agent directory and local control-channel binding while denying Claude direct reads of the auth files.
 
-The bundled web and browser tools make network requests directly from the agent runtime, outside the command network policy. `pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
+`pi-web-access` rejects private and loopback fetch targets. `agent_browser` uses a tool-owned browser profile unless a task explicitly selects another profile.
 
 Session data lives under `<project>/.agents/sessions/<session>`, where `<project>` is the checkout the command was launched from. `session.json` records the exact conversation path, `turn.json` records the current turn's state and final result, and each turn has its own log. The conversation and results remain after merge or discard.

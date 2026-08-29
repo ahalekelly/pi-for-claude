@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { usesRm } from "../src/extensions/sandbox/command-guard.ts";
 import { readBlocked, writeBlocked } from "../src/extensions/sandbox/path-guard.ts";
+import { basePolicy } from "../src/sandbox-policy.ts";
 
 const config = {
   denyRead: ["~/.agents/secrets.env", "~/.ssh"],
@@ -13,6 +14,19 @@ const config = {
   denyWrite: [".env", ".git", "*.pem"],
   gitWrite: [],
 };
+
+test("runtime policy leaves network unrestricted and restricts filesystem access", () => {
+  const runtimePolicy = basePolicy(false);
+  assert.deepEqual(runtimePolicy.network, {});
+  assert.deepEqual(runtimePolicy.filesystem.denyRead, [
+    "~/.agents/secrets.env",
+    "~/.secrets.env",
+    "~/.ssh",
+    "~/.aws",
+    "~/.gnupg",
+    "~/.config/gcloud",
+  ]);
+});
 
 test("rm guard blocks permanent deletion commands", () => {
   for (const command of [

@@ -8,7 +8,7 @@ import {
   type BashOperations,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 
 import { agentPaths } from "../../agent-paths.ts";
 import { renderString } from "../../core.ts";
@@ -42,17 +42,11 @@ function sandboxedBash(): BashOperations {
   // unreadable by design, and pi signing as the user would be dishonest
   // anyway. Without this, a global commit.gpgsign=true fails every commit
   // with "could not create temporary file: Operation not permitted".
-  //
-  // NODE_USE_ENV_PROXY: the sandbox provides network only through the proxy
-  // in HTTP(S)_PROXY, which Node's fetch ignores unless this is set — without
-  // it, node scripts inside the sandbox cannot reach the network while curl
-  // works.
   const environment: NodeJS.ProcessEnv = {
     ...base,
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "commit.gpgsign",
     GIT_CONFIG_VALUE_0: "false",
-    NODE_USE_ENV_PROXY: "1",
   };
   if (!environment.PATH) throw new Error(msg("path-required"));
 
@@ -154,7 +148,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     try {
       mkdirSync(tmpdir, { recursive: true });
-      await SandboxManager.initialize(runtimePolicy);
+      await SandboxManager.initialize(runtimePolicy as unknown as SandboxRuntimeConfig);
       status = { state: "ready" };
       ctx.ui.notify(msg("sandbox-initialized", { mode }), "info");
     } catch (error) {
