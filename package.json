@@ -1,6 +1,6 @@
 {
   "name": "pi-for-claude",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Allow Claude Code to delegate tasks to the Pi coding agent.",
   "license": "MIT",
   "author": "ahalekelly",
