@@ -263,12 +263,19 @@ const server = createServer((request, response) => {
         return;
       }
       response.writeHead(200, { "content-type": "text/event-stream" });
-      const delta = reply.kind === "text"
-        ? { content: reply.text }
-        : { tool_calls: [{ index: 0, id: "call-" + index, type: "function", function: { name: reply.name, arguments: JSON.stringify(reply.arguments) } }] };
-      response.write("data: " + JSON.stringify({ id: "chatcmpl-test", object: "chat.completion.chunk", created: 0, model: "test-model", choices: [{ index: 0, delta, finish_reason: null }] }) + "\\n\\n");
-      const finish_reason = reply.kind === "text" ? "stop" : "tool_calls";
-      response.write("data: " + JSON.stringify({ id: "chatcmpl-test", object: "chat.completion.chunk", created: 0, model: "test-model", choices: [{ index: 0, delta: {}, finish_reason }] }) + "\\n\\n");
+      const chunk = (delta, finish_reason) => response.write("data: " + JSON.stringify({ id: "chatcmpl-test", object: "chat.completion.chunk", created: 0, model: "test-model", choices: [{ index: 0, delta, finish_reason }] }) + "\\n\\n");
+      if (reply.kind === "text") {
+        // Text streams in two deltas with a gap so tests observe mid-message state.
+        chunk({ content: reply.text.slice(0, 5) }, null);
+        setTimeout(() => {
+          chunk({ content: reply.text.slice(5) }, null);
+          chunk({}, "stop");
+          response.end("data: [DONE]\\n\\n");
+        }, 400);
+        return;
+      }
+      chunk({ tool_calls: [{ index: 0, id: "call-" + index, type: "function", function: { name: reply.name, arguments: JSON.stringify(reply.arguments) } }] }, null);
+      chunk({}, "tool_calls");
       response.end("data: [DONE]\\n\\n");
     }, reply.delayMs ?? 0);
   });
@@ -1116,16 +1123,22 @@ test("watch follows a session launched outside a Monitor and exits when it settl
     const sessions = join(realpathSync(root), ".agents/sessions");
     await waitUntil(() => existsSync(join(sessions, "watched", "turn.json")), "the session turn");
     const watch = spawn(process.execPath, [cli, "watch", "watched"], { cwd: root, env });
-    let stdout = "";
+    const chunks: string[] = [];
     watch.stdout.setEncoding("utf8");
     watch.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
+      chunks.push(chunk);
     });
     try {
       const exitCode = await new Promise<number | null>((resolveExit) => watch.once("exit", resolveExit));
+      const stdout = chunks.join("");
       assert.equal(exitCode, 0);
       assert.match(stdout, /Watched result\./);
       assert.match(stdout, /Session settled\./);
+      // The model streams the message in two deltas; the invocation log gets
+      // whole messages only, so no watch poll ever sees a partial line.
+      for (const chunk of chunks) {
+        if (chunk.includes("Watched")) assert.match(chunk, /Watched result\./);
+      }
     } finally {
       if (watch.exitCode === null) watch.kill("SIGKILL");
     }

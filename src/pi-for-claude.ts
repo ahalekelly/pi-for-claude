@@ -223,7 +223,7 @@ async function sdkRun(
   modelName: string,
   thinking: string,
   consult: boolean,
-): Promise<{ result: string; streamed: boolean }> {
+): Promise<{ result: string; logged: boolean }> {
   const sessionDir = join(sessions, session.id);
   const control = join(sessionDir, "control.json");
   if (existsSync(control)) {
@@ -296,15 +296,10 @@ async function sdkRun(
   let abortRequested = false;
   let lastEventAt = Date.now();
   let result: string | undefined;
-  let streamed = false;
+  let logged = false;
   let modelError: Error | undefined;
   const unsubscribe = agentSession.subscribe((event) => {
     lastEventAt = Date.now();
-    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      activeTurn?.append(event.assistantMessageEvent.delta);
-      streamed = true;
-      return;
-    }
     if (event.type !== "message_end" || event.message.role !== "assistant") return;
     if (event.message.stopReason === "error") {
       modelError = new Error(event.message.errorMessage ? msg("pi-model-error", { message: event.message.errorMessage }) : msg("pi-model-error-no-message"));
@@ -316,7 +311,14 @@ async function sdkRun(
     // is fatal.
     modelError = undefined;
     const text = assistantText(event.message);
-    if (text) result = text;
+    if (text) {
+      result = text;
+      // Append whole messages, never streaming deltas: each poll of the
+      // invocation log by `watch` prints everything new, so per-delta appends
+      // flood a Claude Code Monitor with partial lines (issue #17).
+      activeTurn?.append(`${text}\n`);
+      logged = true;
+    }
   });
 
   const token = randomBytes(32).toString("hex");
@@ -403,8 +405,8 @@ async function sdkRun(
         if (modelError) throw modelError;
       }
     }
-    if (result) return { result, streamed };
-    if (abortRequested) return { result: msg("interrupted"), streamed };
+    if (result) return { result, logged };
+    if (abortRequested) return { result: msg("interrupted"), logged };
     return fail(msg("pi-settled-without-result"));
   } finally {
     clearInterval(monitor);
@@ -593,7 +595,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     switch (entry.kind) {
       case "pi":
         process.stdout.write(`${run.result}\n`);
-        if (!run.streamed) activeTurn.append(`${run.result}\n`);
+        if (!run.logged) activeTurn.append(`${run.result}\n`);
         break;
       case "text":
         emit(entry.text);
