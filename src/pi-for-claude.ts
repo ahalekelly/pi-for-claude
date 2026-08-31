@@ -257,6 +257,7 @@ async function sdkRun(
     noExtensions: true,
     additionalExtensionPaths: [
       join(packageExtensions, "sandbox", "index.ts"),
+      join(packageExtensions, "timestamp.ts"),
       ...(consult ? [join(packageExtensions, "consult.ts")] : []),
       join(webAccessPackage, "index.ts"),
       join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
