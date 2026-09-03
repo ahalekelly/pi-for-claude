@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import test from "node:test";
 
 import { update } from "../src/update.ts";
@@ -17,16 +17,16 @@ test("update refreshes Pi, bundled extensions, and installed extensions", () => 
   const project = join(root, "project");
   const bin = join(root, "bin");
   const globalRoot = join(root, "global", "node_modules");
-  const piBin = join(globalRoot, "pi-for-claude", "node_modules", ".bin");
+  const piCli = join(globalRoot, "pi-for-claude", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
   mkdirSync(join(home, "prompts"), { recursive: true });
   mkdirSync(project);
   mkdirSync(bin);
-  mkdirSync(piBin, { recursive: true });
+  mkdirSync(dirname(piCli), { recursive: true });
   cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(home, "prompts", "strings.json"));
 
   const log = join(root, "commands.log");
   executable(join(bin, "npm"), 'printf "npm|%s|%s\\n" "$PWD" "$*" >> "$UPDATE_LOG"\nif [ "$*" = "root --global" ]; then printf "%s\\n" "$GLOBAL_ROOT"; fi');
-  executable(join(piBin, "pi"), 'printf "pi|%s|%s\\n" "$PWD" "$*" >> "$UPDATE_LOG"');
+  writeFileSync(piCli, 'require("node:fs").appendFileSync(process.env.UPDATE_LOG, `pi|${process.cwd()}|${process.argv.slice(2).join(" ")}\\n`);\n');
 
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${delimiter}${originalPath}`;

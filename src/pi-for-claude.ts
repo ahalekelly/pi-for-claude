@@ -127,10 +127,13 @@ function shell(command: string, cwd: string): string {
 }
 
 function trashPath(path: string): void {
-  const command = process.platform === "win32" ? "trash.cmd" : "trash";
-  const result = spawnSync(command, [path], { encoding: "utf8" });
-  if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
-  if (result.status !== 0) fail(result.stderr.trim() || msg("command-failed", { command }));
+  const trashCli = fileURLToPath(import.meta.resolve("trash-cli/cli.js"));
+  // trash-cli globs its argument, where a backslash escapes the next character, so a Windows
+  // path matches nothing and is silently left in place.
+  const target = process.platform === "win32" ? path.replaceAll("\\", "/") : path;
+  const result = spawnSync(process.execPath, [trashCli, target], { encoding: "utf8" });
+  if (result.error) fail(msg("could-not-run", { command: "trash", error: result.error.message }));
+  if (result.status !== 0) fail(result.stderr.trim() || msg("command-failed", { command: "trash" }));
 }
 
 function bestEffortInputShell(command: string, cwd: string): string {
@@ -660,7 +663,7 @@ function listSessions(project: string): void {
 function exportSession(source: string, output: string): void {
   const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
   const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
-  const exported = spawnSync(piBin, ["--export", source, output], { encoding: "utf8" });
+  const exported = spawnSync(process.execPath, [piBin, "--export", source, output], { encoding: "utf8" });
   if (exported.error) fail(msg("could-not-run", { command: piBin, error: exported.error.message }));
   if (exported.status !== 0) fail(exported.stderr.trim() || msg("command-failed", { command: `${piBin} --export` }));
   process.stdout.write(exported.stdout);
