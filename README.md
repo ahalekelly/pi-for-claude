@@ -52,6 +52,10 @@ Web research is provided by `pi-web-access`, using available Pi provider authent
 
 Browser automation is provided by `pi-agent-browser-native`, which exposes the bundled `agent-browser` runtime through the native `agent_browser` Pi tool and keeps its browser state separate from the user's normal browser profile unless the agent specifies otherwise.
 
+## Development
+
+Clone the repository, install dependencies with `npm install`, then run `npm link` to point the global `pi-for-claude` command at the checkout. `pi-for-claude version` prints the executable it resolves to, confirming the link.
+
 ## Running Pi-for-Claude
 
 Claude writes the task plan in a Markdown file, then passes it to `run`:

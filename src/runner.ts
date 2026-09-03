@@ -9,6 +9,12 @@ function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
 }
 
+// git prints POSIX separators even on Windows, where the filesystem also compares case-insensitively.
+export function samePath(a: string, b: string): boolean {
+  const [x, y] = [resolve(a), resolve(b)];
+  return process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
+
 export function git(cwd: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (result.error) throw new Error(msg("could-not-run-git", { error: result.error.message }));
@@ -43,7 +49,7 @@ export function resolveProject(projectDir: string): ResolvedProject {
   // scratch dir under a git-tracked home) silently adopts that repository as
   // the project.
   const realProject = realpathSync(project);
-  if (realProject !== toplevel) {
+  if (!samePath(realProject, toplevel)) {
     // An ignored directory can never become part of the enclosing repository,
     // so it is a standalone non-git project rather than a rejected subdirectory.
     const ignored = spawnSync("git", ["-C", realProject, "check-ignore", "-q", "--", realProject], {
@@ -53,9 +59,9 @@ export function resolveProject(projectDir: string): ResolvedProject {
     if (ignored.error) throw new Error(msg("could-not-run-git", { error: ignored.error.message }));
     if (ignored.status === 0) return { kind: "standalone", dir: project };
     if (ignored.status !== 1) throw new Error(ignored.stderr.trim() || msg("git-command-failed", { args: "check-ignore -q" }));
-    throw new Error(msg("project-not-checkout-root", { project, root: toplevel }));
+    throw new Error(msg("project-not-checkout-root", { project, root: resolve(toplevel) }));
   }
-  return { kind: "checkout", main: toplevel };
+  return { kind: "checkout", main: realProject };
 }
 
 export function sessionIdFromPlan(planPath: string): string {
