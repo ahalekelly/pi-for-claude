@@ -1,10 +1,11 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 
 import { renderString } from "./core.ts";
+import { samePath } from "./runner.ts";
 
 const sessionIdPattern = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -114,7 +115,7 @@ export class SessionStore {
     const record = value as SessionRecord;
     if (!validTimestamp(record.createdAt)
       || !isAbsolute(record.conversation)
-      || resolve(dirname(record.conversation)) !== resolve(this.dir(id))
+      || !samePath(dirname(record.conversation), this.dir(id))
       || !basename(record.conversation).endsWith(".jsonl")) {
       throw new Error(this.msg("malformed-session-metadata", { path }));
     }
@@ -179,7 +180,7 @@ export class SessionStore {
     const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (!Check(turnSchema, value)) throw new Error(this.msg("malformed-turn-state", { path }));
     const turn = value as Turn;
-    if (turn.log !== join(this.dir(id), `${turn.id}.log`)) throw new Error(this.msg("malformed-turn-state", { path }));
+    if (!samePath(turn.log, join(this.dir(id), `${turn.id}.log`))) throw new Error(this.msg("malformed-turn-state", { path }));
     return turn;
   }
 }
