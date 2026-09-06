@@ -70,7 +70,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
-- `--model <label-or-id>` — labels come from the pi-for-claude checkout's `models.json`: `default` is the latest openai-codex Sol model at medium, `best` the same at xhigh, `cheap` the latest Luna model at medium
+- `--model <label-or-id>` — labels come from the pi-for-claude checkout's `models.json`: `default` is the latest openai-codex Sol model at medium, `best` the same at xhigh, `cheap` the latest Luna model at medium, `astra` the latest Astra model at xhigh for second opinions and reviews
 - `--thinking <level>` — override the label's thinking level
 - `--base <ref>` — diff base for reviews
 - `--no-consult` — unattended run: removes the consult tool, so Pi makes conservative assumptions and reports them instead of blocking on questions
