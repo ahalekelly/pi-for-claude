@@ -171,7 +171,7 @@ Prompt commands accept `--model <label-or-id>`, `--thinking <level>`, `--base <r
 }
 ```
 
-A single `*` selects the registered model with the highest one- or two-part numeric version. The provider is part of the pattern, so `openai-codex/gpt-*-sol` never selects the corresponding `openai` model.
+A literal `provider/id` passed to `--model` or configured in a label must name a model Pi has registered. A single `*` selects the registered model with the highest one- or two-part numeric version. The provider is part of the pattern, so `openai-codex/gpt-*-sol` never selects the corresponding `openai` model.
 
 ## Reusable Prompts
 

@@ -142,18 +142,27 @@ test("resolveModel applies explicit, label, and literal model settings", () => {
     best: { model: "openai-codex/gpt-5.6-sol", thinking: "xhigh" },
   };
 
-  assert.deepEqual(resolveModel("best", undefined, config, []), {
+  const registeredModels = [
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-terra",
+    "openai-codex/gpt-custom",
+  ];
+  assert.deepEqual(resolveModel("best", undefined, config, registeredModels), {
     model: "openai-codex/gpt-5.6-sol",
     thinking: "xhigh",
   });
-  assert.deepEqual(resolveModel("default", "high", config, []), {
+  assert.deepEqual(resolveModel("default", "high", config, registeredModels), {
     model: "openai-codex/gpt-5.6-terra",
     thinking: "high",
   });
-  assert.deepEqual(resolveModel("openai-codex/gpt-custom", "medium", config, []), {
+  assert.deepEqual(resolveModel("openai-codex/gpt-custom", "medium", config, registeredModels), {
     model: "openai-codex/gpt-custom",
     thinking: "medium",
   });
+  assert.throws(
+    () => resolveModel("openai-codex/gpt-custom", "medium", config, []),
+    /Unknown model 'openai-codex\/gpt-custom'/,
+  );
 });
 
 test("resolveModel selects the highest matching model from the requested provider", () => {
