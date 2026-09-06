@@ -113,7 +113,7 @@ test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", ()
 });
 
 function scratchRepo(prefix: string): string {
-  const root = mkdtempSync(`/tmp/${prefix}`);
+  const root = realpathSync(mkdtempSync(`/tmp/${prefix}`));
   git(root, "init", "-b", "main");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "user.email", "pi-for-claude@example.test");
