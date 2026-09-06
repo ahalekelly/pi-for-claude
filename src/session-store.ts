@@ -144,9 +144,9 @@ export class SessionStore {
   }
 
   list(): Session[] {
-    return readdirSync(this.root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && existsSync(this.metadataPath(entry.name)))
-      .map((entry) => this.read(entry.name))
+    return readdirSync(this.root)
+      .filter((id) => this.exists(id))
+      .map((id) => this.read(id))
       .filter((session) => session.status === "active")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
