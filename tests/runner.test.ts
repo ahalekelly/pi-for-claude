@@ -832,23 +832,31 @@ test("failures before and during a run fail fast without burning the session id"
   const run = (env: Record<string, string>, ...args: string[]) =>
     spawnSync(process.execPath, [cli, "implement-in-worktree", ...args], { encoding: "utf8", cwd: root, env: { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: piForClaudeHome, ...env }, timeout: 15000 });
 
-  const badModel = run({}, "plan.md", "--model", "nope");
-  assert.equal(badModel.status, 1);
-  assert.match(badModel.stderr, /Unknown model label 'nope'/);
+  const badLabel = run({}, "plan.md", "--model", "nope");
+  assert.equal(badLabel.status, 1);
+  assert.match(badLabel.stderr, /Unknown model label 'nope'/);
   const missingPlan = run({}, "absent.md");
   assert.equal(missingPlan.status, 1);
   assert.match(missingPlan.stderr, /Plan file does not exist/);
   const missingAttachment = run({}, "plan.md", "--prepend", "absent.txt");
   assert.equal(missingAttachment.status, 1);
   assert.match(missingAttachment.stderr, /Attachment file does not exist/);
+
+  const badModel = run({}, "plan.md", "--model", "test-provider/no-such-model");
+  assert.equal(badModel.status, 1);
+  assert.match(badModel.stderr, /Unknown model '/);
+  assert.doesNotMatch(badModel.stderr, /intact/);
+  assert.match(badModel.stderr, /No resumable conversation exists/);
   assert.equal(existsSync(worktree), false);
   assert.equal(existsSync(fixedSessionPath(sessions, "plan")), false);
+  const turn = JSON.parse(readFileSync(join(sessions, "plan", "turn.json"), "utf8"));
+  assert.equal(turn.state, "failed");
 
-  writeFileSync(join(root, "plan2.md"), "Do the thing.\n");
-  const provider = run(model.env, "plan2.md");
+  const provider = run(model.env, "plan.md");
   assert.equal(provider.signal, null, "pi-for-claude must exit on its own instead of hanging");
   assert.equal(provider.status, 1);
   assert.match(provider.stderr, /The usage limit has been reached/);
+  assert.doesNotMatch(provider.stderr, /already exists|git clone/);
 });
 
 test("steer, queue, and interrupt authenticate over the control port", async (t) => {

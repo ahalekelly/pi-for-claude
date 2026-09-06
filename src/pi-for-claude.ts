@@ -224,6 +224,7 @@ async function sdkRun(
   thinking: string,
   consult: boolean,
 ): Promise<{ result: string; logged: boolean }> {
+  if ("conversation" in session) resumableSessionId = session.id;
   const sessionDir = join(sessions, session.id);
   const control = join(sessionDir, "control.json");
   if (existsSync(control)) {
@@ -244,7 +245,6 @@ async function sdkRun(
   const configuredAgentDir = agentDir();
   const settingsManager = locklessSettings(sdk.SettingsManager, session.worktree, configuredAgentDir, true);
   const separator = modelName.indexOf("/");
-  if (separator === -1) fail(msg("unknown-model", { model: modelName }));
   const model = modelRuntime.getModel(modelName.slice(0, separator), modelName.slice(separator + 1));
   if (!model) fail(msg("unknown-model", { model: modelName }));
 
@@ -272,6 +272,7 @@ async function sdkRun(
     const conversation = sessionManager.getSessionFile();
     if (!conversation) fail(msg("conversation-path-required"));
     store.save(session, conversation);
+    if (session.kind !== "review") resumableSessionId = session.id;
   }
   const projectTools = command.sandbox === "read-only"
     ? ["read", "bash", "grep", "find", "ls"]
@@ -570,7 +571,6 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   }
 
   activeTurn = dirs.store.beginTurn(session.id, randomBytes(16).toString("hex"));
-  if (session.kind !== "review") resumableSessionId = session.id;
   await preflightControlBinding();
   preflightAuthWrite();
   await preflightSandbox(command.sandbox === "read-only");
@@ -584,13 +584,21 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   for (const path of [...flags.prepend, ...flags.append]) {
     if (!existsSync(resolve(path))) fail(msg("attachment-missing", { path: resolve(path) }));
   }
-  if (!("conversation" in session) && session.kind === "worktree") {
-    git(dirs.root, ["clone", "--local", "--no-checkout", "--no-tags", dirs.root, session.worktree]);
-    git(session.worktree, ["checkout", "-b", session.branch, session.baseCommit]);
-    appendFileSync(join(session.worktree, ".git", "info", "exclude"), `\n${sandboxGitExcludes.join("\n")}\n`);
+  let createdWorktree = false;
+  let run: { result: string; logged: boolean };
+  try {
+    if (!("conversation" in session) && session.kind === "worktree") {
+      git(dirs.root, ["clone", "--local", "--no-checkout", "--no-tags", dirs.root, session.worktree]);
+      createdWorktree = true;
+      git(session.worktree, ["checkout", "-b", session.branch, session.baseCommit]);
+      appendFileSync(join(session.worktree, ".git", "info", "exclude"), `\n${sandboxGitExcludes.join("\n")}\n`);
+    }
+    const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
+    run = await sdkRun(sdk, modelRuntime, session, dirs.sessions, dirs.store, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
+  } catch (error) {
+    if (createdWorktree && !dirs.store.exists(session.id)) trashPath(session.worktree);
+    throw error;
   }
-  const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
-  const run = await sdkRun(sdk, modelRuntime, session, dirs.sessions, dirs.store, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
   session = dirs.store.read(session.id);
   for (const entry of command.output) {
     switch (entry.kind) {
@@ -878,6 +886,7 @@ async function main(argv: string[]): Promise<void> {
 main(process.argv.slice(2)).catch((error: unknown) => {
   let report = `${msg("error-prefix", { message: error instanceof Error ? error.message : String(error) })}\n`;
   if (resumableSessionId) report += `${msg("session-resume-hint", { id: resumableSessionId })}\n`;
+  else if (activeTurn) report += `${msg("launch-failed-hint")}\n`;
   process.stderr.write(report);
   // Filesystem permission errors reaching here are almost always an
   // operating-system sandbox denying a session-state write (seatbelt matches
