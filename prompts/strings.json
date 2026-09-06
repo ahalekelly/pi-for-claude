@@ -37,6 +37,7 @@
   "interrupted": "Interrupted.",
   "invalid-control-token": "Invalid control token",
   "invalid-injection-name": "Invalid injection name '$name'",
+  "launch-failed-hint": "No resumable conversation exists for this run; fix the problem and rerun the same command.",
   "malformed-control-file": "Malformed control file: $path",
   "malformed-session-metadata": "Malformed session metadata: $path",
   "malformed-turn-state": "Malformed session turn state: $path",

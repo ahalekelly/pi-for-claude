@@ -202,6 +202,8 @@ export function resolveModel(
       throw new Error(msg("model-pattern-ambiguous", { pattern: configuredModel }));
     }
     model = latest!.candidate;
+  } else if (!registeredModels.includes(model)) {
+    throw new Error(msg("unknown-model", { model }));
   }
   const labelThinking = typeof selected === "string" ? undefined : (selected as { thinking: string }).thinking;
   const thinking = explicitThinking ?? labelThinking;
