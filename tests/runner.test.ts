@@ -1294,3 +1294,22 @@ test("SessionStore.exists treats free text as a missing session rather than an e
   assert.equal(store.exists("Review the commits since c2c6609; report file:line problems."), false);
   assert.equal(store.exists("no-such-session"), false);
 });
+
+test("SessionStore.list skips entries that are not sessions", () => {
+  const sessions = mkdtempSync(join(tmpdir(), "pi-sessions-"));
+  const store = new SessionStore(sessions, resolve(import.meta.dirname, ".."), "test");
+  mkdirSync(join(sessions, ".pi-agent-browser-artifacts"));
+  mkdirSync(join(sessions, "no-metadata"));
+  writeFileSync(join(sessions, "stray.jsonl"), "");
+  const record = { kind: "review", command: "review", mainCheckout: sessions, worktree: sessions, createdAt };
+  writeSessionFixture(sessions, "real-session", record);
+
+  assert.deepEqual(store.list(), [{
+    schemaVersion: 1,
+    writerVersion: "0.2.0",
+    status: "active",
+    conversation: join(sessions, "real-session", "conversation.jsonl"),
+    ...record,
+    id: "real-session",
+  }]);
+});
