@@ -10,5 +10,9 @@
   "cheap": {
     "model": "openai-codex/gpt-*-luna",
     "thinking": "medium"
+  },
+  "astra": {
+    "model": "openai-codex/gpt-*-astra",
+    "thinking": "xhigh"
   }
 }
