@@ -21,7 +21,7 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 3. Pi can call `consult_orchestrator(question)`, which writes question and answer files under `.agents/sessions/<session>/` and waits up to ten minutes. The Monitor emits the question and answer-file path. Restate both in a user reply — the user cannot see Monitor event bodies. With `--no-consult`, Pi proceeds without asking.
 
-4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt`.
+4. While the subagent is running, redirect it with `steer`, `queue`, and `interrupt`; these commands connect to its localhost control port, so from Claude Code normally run them with `dangerouslyDisableSandbox`, as with launches. `sessions`, `result`, and `watch` only read session files and work sandboxed; `version` needs npm registry access for its latest-version check.
 
 5. When it completes, review the work: Pi finishes with everything committed in its private checkout, and its commits and a diffstat against the project branch are appended to the response. Check errors, edge cases, and deviations from the plan. Keep the private checkout clean while reviewing (`npm ci`, not `npm install`) and queue changes into a live session rather than editing its files yourself. If `merge` refuses because the project checkout has uncommitted edits: `git stash`, merge, `git stash pop`.
 

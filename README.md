@@ -127,6 +127,8 @@ pi-for-claude interrupt fix-auth
 
 `steer` adds a message after the next tool call. `queue` adds a message after the current task is done. `interrupt` stops the turn but keeps the session resumable.
 
+These commands reach the session over a localhost port that Claude Code's sandbox cannot see, so from Claude Code run them with `dangerouslyDisableSandbox`.
+
 Pi can call `consult_orchestrator` when it needs a decision. The running command prints the question and the answer-file path, then waits up to ten minutes for Claude to reply.
 
 ## Commands
