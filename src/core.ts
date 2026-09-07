@@ -208,3 +208,8 @@ export function resolveModel(
   if (!thinking) throw new Error(msg("no-thinking-level", { label: labelOrId }));
   return { model, thinking: enumValue("thinking", thinking, thinkingLevels) };
 }
+
+// Provider wording for a rejected OAuth access token. Pi refreshes only on its
+// own expiry clock and never on HTTP 401, so a token the provider revokes early
+// ends the turn with one of these messages.
+export const rejectedTokenPattern = /access token|token is expired|token_expired|unauthori[sz]ed|authentication|sign(ing)? in again|invalid token/i;

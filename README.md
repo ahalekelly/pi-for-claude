@@ -37,6 +37,8 @@ pi-for-claude setup
 
 Then start Pi and log in to your model providers of choice.
 
+When a provider rejects Pi's OAuth token mid-session, pi-for-claude refreshes the token and retries the turn once; if the refresh also fails, the session fails with the login command to run.
+
 Skill files are automatically loaded from the typical Pi locations:
 
 ```

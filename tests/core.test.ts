@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { parsePrompt, renderTemplate, resolveModel } from "../src/core.ts";
+import { parsePrompt, rejectedTokenPattern, renderTemplate, resolveModel } from "../src/core.ts";
 
 test("parsePrompt exposes a complete command definition", () => {
   const source = `---
@@ -205,6 +205,15 @@ body`;
   assert.throws(() => parsePrompt(valid.replace("model: default", "model: default\nmodel: best")), /Map keys must be unique/);
   assert.throws(() => parsePrompt(valid.replace("consult: Ask when blocked\n", "")), /worktree.*requires a consult field/);
   assert.throws(() => parsePrompt(valid.replace("mode: worktree", "mode: review")), /review.*must not contain a consult field/);
+});
+
+test("rejectedTokenPattern recognizes rejected OAuth tokens", () => {
+  for (const message of ["Provided authentication token is expired.", "Missing valid access token or actor biscuit", "401 Unauthorized"]) {
+    assert.ok(rejectedTokenPattern.test(message), message);
+  }
+  for (const message of ["You have hit your ChatGPT usage limit (pro plan). Try again in ~30 min.", "This model's maximum context length is 200000 tokens"]) {
+    assert.ok(!rejectedTokenPattern.test(message), message);
+  }
 });
 
 test("strings.json keys are sorted", () => {

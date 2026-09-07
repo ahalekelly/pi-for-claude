@@ -51,6 +51,10 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 4. Close with `pi-for-claude discard <session>`: it closes the session and leaves project files in place; without a private checkout there is no `merge`.
 
+## Rejected OAuth tokens
+
+If a session fails because a provider rejected Pi's OAuth token and the refresh failed, the error names the login command. It needs a real terminal (`/login <provider>` in Pi's TUI), so ask the user to run it before resuming; resuming first fails the same way.
+
 ## Command reference
 
 - `implement-in-worktree <plan-file>` — implement a plan in a private Git checkout

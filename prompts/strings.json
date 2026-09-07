@@ -56,6 +56,8 @@
   "no-command-output": "(no command output)",
   "no-consult-guidance": "This run is unattended: the orchestrator is not available for questions, and there is no consult tool. Never pause to wait for input. When a decision is ambiguous, make the most conservative in-scope assumption, proceed, and report the assumption in your summary.",
   "no-thinking-level": "No thinking level configured for model '$label'",
+  "oauth-refresh-failed": "$provider rejected Pi's OAuth token and refreshing it failed: $error\nLog in again from a terminal: run $pi and enter /login $provider. Then resume the session.",
+  "oauth-token-rejected": "$provider rejected Pi's OAuth token; refreshing it and retrying the turn.",
   "package-metadata-invalid": "The installed pi-for-claude package metadata is invalid",
   "path-required": "PATH environment variable is required",
   "pi-model-error": "Pi's model request failed: $message",

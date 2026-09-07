@@ -14,7 +14,7 @@ import { Type, type Static, type TSchema } from "typebox";
 import { Check } from "typebox/value";
 
 import { agentDir, agentPaths } from "./agent-paths.ts";
-import { parsePrompt, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
+import { parsePrompt, rejectedTokenPattern, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
 import { basePolicy, sandboxGitExcludes } from "./sandbox-policy.ts";
@@ -390,19 +390,41 @@ async function sdkRun(
     warnedIntervals = intervals;
   }, 500);
 
-  try {
-    await agentSession.prompt(prompt, { source: "rpc" });
+  const turn = async (text: string): Promise<void> => {
+    await agentSession.prompt(text, { source: "rpc" });
     await agentSession.waitForIdle();
     if (agentSession.pendingMessageCount !== 0) fail(msg("pi-settled-with-pending-messages"));
+  };
+
+  try {
+    await turn(prompt);
+    const rejected = modelError as Error | undefined;
+    if (rejected && rejectedTokenPattern.test(rejected.message)) {
+      const stored = sdk.readStoredCredential(model.provider);
+      if (stored?.type === "oauth") {
+        emit(`${msg("oauth-token-rejected", { provider: model.provider })}\n`);
+        // Requesting at least the validity the stored credential claims makes Pi
+        // refresh it under its cross-process lock and persist the result.
+        try {
+          await modelRuntime.getAuth(model, { minOAuthValidityMs: stored.expires - Date.now() });
+        } catch (error) {
+          fail(msg("oauth-refresh-failed", {
+            provider: model.provider,
+            error: error instanceof Error ? error.message : String(error),
+            pi: join(home, "node_modules", ".bin", "pi"),
+          }));
+        }
+        modelError = undefined;
+        await turn(prompt);
+      }
+    }
     if (modelError) throw modelError;
 
     const checkHandback = session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);
     if (result && !abortRequested && checkHandback) {
       const blocker = handbackBlocker(session.worktree);
       if (blocker) {
-        await agentSession.prompt(blocker, { source: "rpc" });
-        await agentSession.waitForIdle();
-        if (agentSession.pendingMessageCount !== 0) fail(msg("pi-settled-with-pending-messages"));
+        await turn(blocker);
         if (modelError) throw modelError;
       }
     }
