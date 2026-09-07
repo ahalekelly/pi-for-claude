@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,35 @@ function executable(path: string, source: string): void {
   writeFileSync(path, `#!/bin/sh\n${source}\n`);
   chmodSync(path, 0o755);
 }
+
+test("update refuses to replace a git checkout", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-update-checkout-"));
+  const home = join(root, "home");
+  const project = join(root, "project");
+  const bin = join(root, "bin");
+  const log = join(root, "commands.log");
+  mkdirSync(join(home, ".git"), { recursive: true });
+  mkdirSync(join(home, "prompts"));
+  mkdirSync(project);
+  mkdirSync(bin);
+  cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(home, "prompts", "strings.json"));
+  executable(join(bin, "npm"), 'printf "%s\\n" "$*" >> "$UPDATE_LOG"');
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${originalPath}`;
+  process.env.UPDATE_LOG = log;
+  try {
+    assert.throws(
+      () => update(home, project),
+      { message: `pi-for-claude is running from the git checkout at ${home}. Update it there with git pull and npm install.` },
+    );
+  } finally {
+    process.env.PATH = originalPath;
+    delete process.env.UPDATE_LOG;
+  }
+
+  assert.equal(existsSync(log), false);
+});
 
 test("update refreshes Pi, bundled extensions, and installed extensions", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-update-"));
