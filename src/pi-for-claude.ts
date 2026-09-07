@@ -655,7 +655,9 @@ function control(project: string, id: string, type: "steer" | "follow_up" | "abo
     const socket = createConnection({ host: "127.0.0.1", port: location.port });
     let input = "";
     socket.setEncoding("utf8");
-    socket.once("error", reject);
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      reject(error.code === "ECONNREFUSED" ? new Error(msg("control-port-unreachable", { id, port: String(location.port) })) : error);
+    });
     socket.on("data", (data) => {
       input += data;
       const newline = input.indexOf("\n");
@@ -863,7 +865,8 @@ async function main(argv: string[]): Promise<void> {
   }
   if (name === "version") {
     if (values.length > 0) fail(msg("version-usage"));
-    return showVersion(home, fileURLToPath(import.meta.url));
+    process.stdout.write(showVersion(home, fileURLToPath(import.meta.url)));
+    return;
   }
   if (!name || name === "help") return help();
   const project = process.cwd();

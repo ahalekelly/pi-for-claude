@@ -4,12 +4,33 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
 
-import { update } from "../src/update.ts";
+import { packageVersion, showVersion, update } from "../src/update.ts";
 
 function executable(path: string, source: string): void {
   writeFileSync(path, `#!/bin/sh\n${source}\n`);
   chmodSync(path, 0o755);
 }
+
+test("version reports the local version when npm is unavailable", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-version-"));
+  const home = join(root, "home");
+  const bin = join(root, "bin");
+  mkdirSync(join(home, "prompts"), { recursive: true });
+  mkdirSync(bin);
+  cpSync(join(import.meta.dirname, "../package.json"), join(home, "package.json"));
+  cpSync(join(import.meta.dirname, "../prompts/strings.json"), join(home, "prompts", "strings.json"));
+  executable(join(bin, "npm"), 'printf "npm ERR! code E407\\n" >&2\nexit 1');
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${originalPath}`;
+  try {
+    const output = showVersion(home, join(bin, "npm"));
+    assert.match(output, new RegExp(`Version: ${packageVersion(home)}`));
+    assert.match(output, /Latest: unknown — .*npm ERR! code E407/);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});
 
 test("update refreshes Pi, bundled extensions, and installed extensions", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-update-"));

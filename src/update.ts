@@ -27,19 +27,23 @@ export function packageVersion(home: string): string {
   return metadata.version;
 }
 
-export function showVersion(home: string, executable: string): void {
+export function showVersion(home: string, executable: string): string {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const current = packageVersion(home);
   const revision = existsSync(join(home, ".git"))
     ? output(home, "git", ["-C", home, "rev-parse", "HEAD"], home)
     : `v${current}`;
-  const latest = output(home, npm, ["view", "pi-for-claude", "version"], home);
-  process.stdout.write(msg(home, "version-info", {
+  const npmVersion = spawnSync(npm, ["view", "pi-for-claude", "version"], { cwd: home, encoding: "utf8" });
+  const error = npmVersion.error?.message ?? npmVersion.stderr.split("\n").find((line) => line.trim())?.trim();
+  const latest = npmVersion.status === 0
+    ? npmVersion.stdout.trim()
+    : msg(home, "version-latest-unavailable", { error: error ?? `exit ${npmVersion.status}` });
+  return msg(home, "version-info", {
     version: current,
     revision,
     executable: realpathSync(executable),
     latest,
-  }));
+  });
 }
 
 export function update(home: string, project: string): void {
