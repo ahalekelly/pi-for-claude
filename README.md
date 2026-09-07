@@ -54,6 +54,10 @@ Web research is provided by `pi-web-access`, using available Pi provider authent
 
 Browser automation is provided by `pi-agent-browser-native`, which exposes the bundled `agent-browser` runtime through the native `agent_browser` Pi tool and keeps its browser state separate from the user's normal browser profile unless the agent specifies otherwise.
 
+## Development
+
+Clone the repository and run `npm install` to install dependencies and build `dist/`. Run `npm link` to point the global `pi-for-claude` command at the checkout. The command runs the compiled `dist/`, so run `npm run build` after editing `src/`. `npm test` and `npm run typecheck` run against the source.
+
 ## Running Pi-for-Claude
 
 Claude writes the task plan in a Markdown file, then passes it to `run`:
@@ -141,7 +145,7 @@ Prompt commands call a model:
 Built-in commands do not call a model:
 
 - `setup` — configure the machine and check sandbox dependencies and provider login
-- `update` — atomically install the latest complete pi-for-claude package, then update installed Pi extensions
+- `update` — install the latest pi-for-claude package and update installed Pi extensions; refuses to run from a git checkout
 - `version` — show the running package version, source revision, executable path, and latest published version
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the persisted response from the last settled turn; reject a running or failed turn

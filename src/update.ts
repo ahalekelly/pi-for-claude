@@ -43,6 +43,8 @@ export function showVersion(home: string, executable: string): void {
 }
 
 export function update(home: string, project: string): void {
+  if (existsSync(join(home, ".git"))) throw new Error(msg(home, "update-from-checkout", { home }));
+
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   process.stdout.write(`${msg(home, "update-package")}\n`);
   run(home, npm, ["install", "--global", "pi-for-claude@latest"], project);

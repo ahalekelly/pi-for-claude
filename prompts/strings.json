@@ -134,6 +134,7 @@
   "unknown-session": "Unknown session '$id'.",
   "update-command-failed": "'$command' exited with status $status",
   "update-extensions": "Updating installed Pi extensions...",
+  "update-from-checkout": "pi-for-claude is running from the git checkout at $home. Update it there with git pull and npm install.",
   "update-package": "Updating pi-for-claude and its bundled dependencies...",
   "update-usage": "Usage: pi-for-claude update",
   "version-info": "Version: $version\nRevision: $revision\nExecutable: $executable\nLatest: $latest\n",
