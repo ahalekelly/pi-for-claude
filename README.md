@@ -19,7 +19,7 @@ Add a Markdown file with the prompt header to prompts/ to create a new pi-for-cl
 
 ## Setup
 
-You must have Node.js 22.19 or newer.
+Requires Node.js 24 or newer.
 
 Install from npm:
 

@@ -15,7 +15,7 @@
     "pi-for-claude": "src/pi-for-claude.ts"
   },
   "engines": {
-    "node": ">=22.19"
+    "node": ">=24.0.0"
   },
   "files": [
     "models.json",
@@ -31,8 +31,8 @@
     "@earendil-works/pi-ai": "^0.84.1",
     "@earendil-works/pi-coding-agent": "^0.84.1",
     "@earendil-works/pi-tui": "^0.84.1",
-    "agent-browser": "^0.33.2",
-    "pi-agent-browser-native": "^0.3.0",
+    "agent-browser": "^0.36.0",
+    "pi-agent-browser-native": "^0.6.7",
     "pi-web-access": "^0.18.0",
     "shell-quote": "1.10.0",
     "trash-cli": "7.2.0",
