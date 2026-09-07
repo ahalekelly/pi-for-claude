@@ -12,18 +12,20 @@
   "homepage": "https://github.com/ahalekelly/pi-for-claude#readme",
   "type": "module",
   "bin": {
-    "pi-for-claude": "src/pi-for-claude.ts"
+    "pi-for-claude": "dist/pi-for-claude.js"
   },
   "engines": {
     "node": ">=22.19"
   },
   "files": [
+    "dist",
     "models.json",
-    "prompts",
-    "src"
+    "prompts"
   ],
   "scripts": {
-    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts tests/update.test.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/package.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts tests/update.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

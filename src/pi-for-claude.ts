@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { createConnection, createServer } from "node:net";
-import { basename, delimiter, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
@@ -41,6 +41,7 @@ type Flags = {
 const home = resolve(process.env.PI_FOR_CLAUDE_HOME ?? dirname(import.meta.dirname));
 const version = packageVersion(home);
 const packageExtensions = join(import.meta.dirname, "extensions");
+const extension = extname(import.meta.filename);
 
 type PiSdk = typeof import("@earendil-works/pi-coding-agent");
 
@@ -256,9 +257,9 @@ async function sdkRun(
     settingsManager,
     noExtensions: true,
     additionalExtensionPaths: [
-      join(packageExtensions, "sandbox", "index.ts"),
-      join(packageExtensions, "timestamp.ts"),
-      ...(consult ? [join(packageExtensions, "consult.ts")] : []),
+      join(packageExtensions, "sandbox", `index${extension}`),
+      join(packageExtensions, `timestamp${extension}`),
+      ...(consult ? [join(packageExtensions, `consult${extension}`)] : []),
       join(webAccessPackage, "index.ts"),
       join(browserPackage, "dist", "extensions", "agent-browser", "index.js"),
     ],
