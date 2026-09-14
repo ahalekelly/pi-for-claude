@@ -11,17 +11,13 @@
   "bugs": "https://github.com/ahalekelly/pi-for-claude/issues",
   "homepage": "https://github.com/ahalekelly/pi-for-claude#readme",
   "type": "module",
+  "private": true,
   "bin": {
     "pi-for-claude": "src/pi-for-claude.ts"
   },
   "engines": {
     "node": ">=24.0.0"
   },
-  "files": [
-    "models.json",
-    "prompts",
-    "src"
-  ],
   "scripts": {
     "test": "node --test tests/core.test.ts tests/instructions.test.ts tests/runner.test.ts tests/sandbox.test.ts tests/setup.test.ts tests/update.test.ts",
     "typecheck": "tsc --noEmit"

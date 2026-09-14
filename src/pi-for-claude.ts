@@ -859,7 +859,7 @@ async function main(argv: string[]): Promise<void> {
   if (name === "setup") return setup(home);
   if (name === "update") {
     if (values.length > 0) fail(msg("update-usage"));
-    return update(home, process.cwd());
+    return update(home);
   }
   if (name === "version") {
     if (values.length > 0) fail(msg("version-usage"));

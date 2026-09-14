@@ -317,16 +317,13 @@ test("help ignores Markdown documentation in the prompts directory", () => {
   assert.match(output, /implement-in-worktree <plan-file>/);
 });
 
-test("version exposes the running package, revision, executable, and available update", () => {
+test("version exposes the running package, revision, and executable", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-version-"));
   const home = makePiForClaudeHome(root);
   const bin = join(root, "bin");
   mkdirSync(bin);
-  writeFileSync(join(home, ".git"), "gitdir: fixture\n");
   writeFileSync(join(bin, "git"), '#!/bin/sh\nprintf "0123456789abcdef0123456789abcdef01234567\\n"\n');
-  writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "0.2.1\\n"\n');
   chmodSync(join(bin, "git"), 0o755);
-  chmodSync(join(bin, "npm"), 0o755);
 
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
   const output = execFileSync(process.execPath, [cli, "version"], {
@@ -334,7 +331,7 @@ test("version exposes the running package, revision, executable, and available u
     env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, PI_FOR_CLAUDE_HOME: home },
     encoding: "utf8",
   });
-  assert.equal(output, `Version: 0.2.0\nRevision: 0123456789abcdef0123456789abcdef01234567\nExecutable: ${realpathSync(cli)}\nLatest: 0.2.1\n`);
+  assert.equal(output, `Version: 0.2.0\nRevision: 0123456789abcdef0123456789abcdef01234567\nExecutable: ${realpathSync(cli)}\n`);
 });
 
 test("run creates an isolated worktree and sends the composed prompt through the SDK", (t) => {
