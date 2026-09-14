@@ -21,10 +21,13 @@ Add a Markdown file with the prompt header to prompts/ to create a new pi-for-cl
 
 Requires Node.js 24 or newer.
 
-Install from npm:
+Clone the repository and link the command:
 
 ```sh
-npm install --global pi-for-claude
+git clone https://github.com/ahalekelly/pi-for-claude.git
+cd pi-for-claude
+npm install
+npm link
 ```
 
 Configure Claude Code's sandbox, check Pi's command-sandbox dependencies, and install the global instructions and git ignore:
@@ -33,7 +36,7 @@ Configure Claude Code's sandbox, check Pi's command-sandbox dependencies, and in
 pi-for-claude setup
 ```
 
-`setup` generates the model-scoped instructions in Pi's user configuration; the installed package remains unchanged.
+`setup` generates the model-scoped instructions in Pi's user configuration; the checkout remains unchanged.
 
 Then start Pi and log in to your model providers of choice.
 
@@ -141,8 +144,8 @@ Prompt commands call a model:
 Built-in commands do not call a model:
 
 - `setup` — configure the machine and check sandbox dependencies and provider login
-- `update` — atomically install the latest complete pi-for-claude package, then update installed Pi extensions
-- `version` — show the running package version, source revision, executable path, and latest published version
+- `update` — pull the pi-for-claude checkout, install its dependencies, then update installed Pi extensions
+- `version` — show the running package version, source revision, and executable path
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the persisted response from the last settled turn; reject a running or failed turn
 - `view <session> [--live | --no-open]` — export the conversation to HTML and optionally keep it updated

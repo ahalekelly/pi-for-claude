@@ -70,7 +70,7 @@ If a session fails because a provider rejected Pi's OAuth token and the refresh 
 - `interrupt <session>` — abort the active turn; the session remains resumable
 - `merge <session>` — import verified commits, fast-forward the project branch, and close the session
 - `discard <session>` — close the session and move its private checkout to the trash
-- `version` — show the running package version, revision, executable, and latest published version
+- `version` — show the running package version, revision, and executable
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
