@@ -113,7 +113,7 @@ test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", ()
 });
 
 function scratchRepo(prefix: string): string {
-  const root = mkdtempSync(`/tmp/${prefix}`);
+  const root = mkdtempSync(join(tmpdir(), prefix));
   git(root, "init", "-b", "main");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "user.email", "pi-for-claude@example.test");
@@ -568,7 +568,7 @@ test("sandboxed bash cannot read Pi credentials but can read a project file", (t
 });
 
 test("run edits a non-git project in place and discard preserves its files", (t) => {
-  const root = mkdtempSync("/tmp/pi-for-claude-in-place-non-git-");
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-in-place-non-git-"));
   writeFileSync(join(root, "change.md"), "Create a file.\n");
   const model = startModelServer(root, [
     { kind: "tool", name: "bash", arguments: { command: "printf 'implemented\\n' > implemented.txt" } },
@@ -1234,7 +1234,7 @@ test("run prints each consult question once with its answer path", async (t) => 
 });
 
 test("a permission error creating session state explains the sandbox and the unsandboxed relaunch", () => {
-  const root = mkdtempSync("/tmp/pi-for-claude-eperm-");
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-eperm-"));
   chmodSync(root, 0o500);
   try {
     const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "sessions"], {
