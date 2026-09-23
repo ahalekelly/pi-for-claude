@@ -1,28 +1,33 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
-import { renderString } from "./core.ts";
+import { piCli, renderString } from "./core.ts";
 
 function msg(home: string, name: string, injections: Record<string, string> = {}): string {
   return renderString(join(home, "prompts", "strings.json"), name, injections);
 }
 
-// Windows Node refuses to spawn npm.cmd unless it goes through a shell (CVE-2024-27980). Only
-// npm may take this path: a shell re-splits arguments, mangling paths that contain spaces.
-const npmShell = process.platform === "win32";
-
-function run(home: string, command: string, args: string[], cwd: string, shell = false): void {
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", shell });
+function run(home: string, command: string, args: string[], cwd: string): void {
+  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
   if (result.error) throw new Error(msg(home, "could-not-run", { command, error: result.error.message }));
   if (result.status !== 0) throw new Error(msg(home, "update-command-failed", { command, status: String(result.status) }));
 }
 
-function output(home: string, command: string, args: string[], cwd: string, shell = false): string {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8", shell });
+function output(home: string, command: string, args: string[], cwd: string): string {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
   if (result.error) throw new Error(msg(home, "could-not-run", { command, error: result.error.message }));
   if (result.status !== 0) throw new Error(msg(home, "update-command-failed", { command, status: String(result.status) }));
   return result.stdout.trim();
+}
+
+// Windows cannot spawn npm.cmd without a shell (CVE-2024-27980), and a shell re-splits arguments,
+// so there npm runs as the JavaScript entry point that Windows installs keep beside npm.cmd.
+function npm(home: string, args: string[]): [string, string[]] {
+  if (process.platform !== "win32") return ["npm", args];
+  const cli = process.env.PATH?.split(delimiter).map((dir) => join(dir, "node_modules", "npm", "bin", "npm-cli.js")).find(existsSync);
+  if (!cli) throw new Error(msg(home, "npm-not-found"));
+  return [process.execPath, [cli, ...args]];
 }
 
 export function packageVersion(home: string): string {
@@ -36,7 +41,7 @@ export function showVersion(home: string, executable: string): void {
   const revision = existsSync(join(home, ".git"))
     ? output(home, "git", ["-C", home, "rev-parse", "HEAD"], home)
     : `v${current}`;
-  const latest = output(home, "npm", ["view", "pi-for-claude", "version"], home, npmShell);
+  const latest = output(home, ...npm(home, ["view", "pi-for-claude", "version"]), home);
   process.stdout.write(msg(home, "version-info", {
     version: current,
     revision,
@@ -46,11 +51,11 @@ export function showVersion(home: string, executable: string): void {
 }
 
 export function update(home: string, project: string): void {
+  if (existsSync(join(home, ".git"))) throw new Error(msg(home, "update-from-checkout", { home }));
   process.stdout.write(`${msg(home, "update-package")}\n`);
-  run(home, "npm", ["install", "--global", "pi-for-claude@latest"], project, npmShell);
+  run(home, ...npm(home, ["install", "--global", "pi-for-claude@latest"]), project);
 
   process.stdout.write(`${msg(home, "update-extensions")}\n`);
-  const globalRoot = output(home, "npm", ["root", "--global"], project, npmShell);
-  const piCli = join(globalRoot, "pi-for-claude", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
-  run(home, process.execPath, [piCli, "update", "--extensions"], project);
+  const globalRoot = output(home, ...npm(home, ["root", "--global"]), project);
+  run(home, process.execPath, [piCli(join(globalRoot, "pi-for-claude", "package.json")), "update", "--extensions"], project);
 }

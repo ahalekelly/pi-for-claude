@@ -54,7 +54,7 @@ Browser automation is provided by `pi-agent-browser-native`, which exposes the b
 
 ## Development
 
-Clone the repository, install dependencies with `npm install`, then run `npm link` to point the global `pi-for-claude` command at the checkout. `pi-for-claude version` prints the executable it resolves to, confirming the link.
+Clone the repository, install dependencies with `npm install`, then run `npm link` to point the global `pi-for-claude` command at the checkout. `pi-for-claude version` prints the executable it resolves to, confirming the link. Update the checkout with `git pull`; `pi-for-claude update` refuses to replace it.
 
 ## Running Pi-for-Claude
 
