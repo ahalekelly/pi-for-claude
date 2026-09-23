@@ -10,11 +10,12 @@ import { fileURLToPath } from "node:url";
 
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import trash from "trash";
 import { Type, type Static, type TSchema } from "typebox";
 import { Check } from "typebox/value";
 
 import { agentDir, agentPaths } from "./agent-paths.ts";
-import { parsePrompt, rejectedTokenPattern, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
+import { parsePrompt, piCli, rejectedTokenPattern, renderString, renderTemplate, resolveModel, thinkingLevels, type PromptCommand } from "./core.ts";
 import { locklessSettings, refreshInstructions } from "./instructions.ts";
 import { git, resolveProject, sessionIdFromPlan } from "./runner.ts";
 import { basePolicy, sandboxGitExcludes } from "./sandbox-policy.ts";
@@ -126,11 +127,10 @@ function shell(command: string, cwd: string): string {
   return result.stdout.trimEnd();
 }
 
-function trashPath(path: string): void {
-  const command = process.platform === "win32" ? "trash.cmd" : "trash";
-  const result = spawnSync(command, [path], { encoding: "utf8" });
-  if (result.error) fail(msg("could-not-run", { command, error: result.error.message }));
-  if (result.status !== 0) fail(result.stderr.trim() || msg("command-failed", { command }));
+// trash ignores paths it cannot find instead of failing, so confirm the path is gone.
+async function trashPath(path: string): Promise<void> {
+  await trash([path], { glob: false });
+  if (existsSync(path)) fail(msg("trash-left-path", { path }));
 }
 
 function bestEffortInputShell(command: string, cwd: string): string {
@@ -680,11 +680,10 @@ function listSessions(project: string): void {
 }
 
 function exportSession(source: string, output: string): void {
-  const piPackage = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-  const piBin = process.env.PI_BIN ?? join(dirname(piPackage), "cli.js");
-  const exported = spawnSync(piBin, ["--export", source, output], { encoding: "utf8" });
-  if (exported.error) fail(msg("could-not-run", { command: piBin, error: exported.error.message }));
-  if (exported.status !== 0) fail(exported.stderr.trim() || msg("command-failed", { command: `${piBin} --export` }));
+  const pi = piCli(import.meta.url);
+  const exported = spawnSync(process.execPath, [pi, "--export", source, output], { encoding: "utf8" });
+  if (exported.error) fail(msg("could-not-run", { command: pi, error: exported.error.message }));
+  if (exported.status !== 0) fail(exported.stderr.trim() || msg("command-failed", { command: `${pi} --export` }));
   process.stdout.write(exported.stdout);
 }
 
@@ -775,7 +774,7 @@ async function view(project: string, values: string[]): Promise<void> {
   });
 }
 
-function merge(project: string, id: string): void {
+async function merge(project: string, id: string): Promise<void> {
   const { root, store } = sessionDirs(project);
   const session = store.readActive(id);
   if (session.kind !== "worktree") fail(msg("session-no-mergeable-branch", { id }));
@@ -808,14 +807,14 @@ function merge(project: string, id: string): void {
   if (candidate !== git(session.worktree, ["rev-parse", "HEAD"])) fail(msg("imported-commit-mismatch"));
   git(root, ["merge", "--ff-only", candidate]);
   store.close(session);
-  trashPath(session.worktree);
+  await trashPath(session.worktree);
   process.stdout.write(`${msg("merged", { id, branch: rootBranch })}\n`);
 }
 
-function discard(project: string, id: string): void {
+async function discard(project: string, id: string): Promise<void> {
   const { store } = sessionDirs(project);
   const session = store.readActive(id);
-  if (session.kind === "worktree" && existsSync(session.worktree)) trashPath(session.worktree);
+  if (session.kind === "worktree" && existsSync(session.worktree)) await trashPath(session.worktree);
   store.close(session);
   process.stdout.write(`${msg("discarded", { id })}\n`);
 }

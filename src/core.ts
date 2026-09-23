@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { findPackageJSON } from "node:module";
+import { dirname, join, resolve } from "node:path";
 
 import { Type, type Static } from "typebox";
 import { Check, Errors } from "typebox/value";
@@ -7,6 +8,18 @@ import YAML from "yaml";
 
 export const thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof thinkingLevels)[number];
+
+// git prints POSIX separators even on Windows, where the filesystem also compares case-insensitively.
+export function samePath(a: string, b: string): boolean {
+  const [x, y] = [resolve(a), resolve(b)];
+  return process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
+
+// Pi's JavaScript entry point as resolved from the module or package.json at `base`. Callers run it
+// with process.execPath because Windows cannot spawn npm's .cmd bin shims without a shell.
+export function piCli(base: string): string {
+  return join(dirname(findPackageJSON("@earendil-works/pi-coding-agent", base)!), "dist", "cli.js");
+}
 
 // The strings file itself cannot describe its own corruption, so these two
 // bootstrap errors are the only human-language text allowed inline.

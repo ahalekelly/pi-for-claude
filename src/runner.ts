@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 
-import { renderString } from "./core.ts";
+import { renderString, samePath } from "./core.ts";
 
 const stringsPath = join(import.meta.dirname, "..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string> = {}): string {
@@ -43,7 +43,7 @@ export function resolveProject(projectDir: string): ResolvedProject {
   // scratch dir under a git-tracked home) silently adopts that repository as
   // the project.
   const realProject = realpathSync(project);
-  if (realProject !== toplevel) {
+  if (!samePath(realProject, toplevel)) {
     // An ignored directory can never become part of the enclosing repository,
     // so it is a standalone non-git project rather than a rejected subdirectory.
     const ignored = spawnSync("git", ["-C", realProject, "check-ignore", "-q", "--", realProject], {
@@ -53,9 +53,9 @@ export function resolveProject(projectDir: string): ResolvedProject {
     if (ignored.error) throw new Error(msg("could-not-run-git", { error: ignored.error.message }));
     if (ignored.status === 0) return { kind: "standalone", dir: project };
     if (ignored.status !== 1) throw new Error(ignored.stderr.trim() || msg("git-command-failed", { args: "check-ignore -q" }));
-    throw new Error(msg("project-not-checkout-root", { project, root: toplevel }));
+    throw new Error(msg("project-not-checkout-root", { project, root: resolve(toplevel) }));
   }
-  return { kind: "checkout", main: toplevel };
+  return { kind: "checkout", main: realProject };
 }
 
 export function sessionIdFromPlan(planPath: string): string {

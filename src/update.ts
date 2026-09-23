@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
-import { renderString } from "./core.ts";
+import { piCli, renderString } from "./core.ts";
 
 function msg(home: string, name: string, injections: Record<string, string> = {}): string {
   return renderString(join(home, "prompts", "strings.json"), name, injections);
@@ -19,6 +19,15 @@ function output(home: string, command: string, args: string[]): string {
   if (result.error) throw new Error(msg(home, "could-not-run", { command, error: result.error.message }));
   if (result.status !== 0) throw new Error(msg(home, "update-command-failed", { command, status: String(result.status) }));
   return result.stdout.trim();
+}
+
+// Windows cannot spawn npm.cmd without a shell (CVE-2024-27980), and a shell re-splits arguments,
+// so there npm runs as the JavaScript entry point that Windows installs keep beside npm.cmd.
+function npm(home: string, args: string[]): [string, string[]] {
+  if (process.platform !== "win32") return ["npm", args];
+  const cli = process.env.PATH?.split(delimiter).map((dir) => join(dir, "node_modules", "npm", "bin", "npm-cli.js")).find(existsSync);
+  if (!cli) throw new Error(msg(home, "npm-not-found"));
+  return [process.execPath, [cli, ...args]];
 }
 
 export function packageVersion(home: string): string {
@@ -40,8 +49,8 @@ export function update(home: string): void {
 
   process.stdout.write(`${msg(home, "update-package")}\n`);
   run(home, "git", ["-C", home, "pull", "--ff-only"]);
-  run(home, process.platform === "win32" ? "npm.cmd" : "npm", ["install"]);
+  run(home, ...npm(home, ["install"]));
 
   process.stdout.write(`${msg(home, "update-extensions")}\n`);
-  run(home, join(home, "node_modules", ".bin", process.platform === "win32" ? "pi.cmd" : "pi"), ["update", "--extensions"]);
+  run(home, process.execPath, [piCli(join(home, "package.json")), "update", "--extensions"]);
 }
