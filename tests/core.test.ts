@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { parsePrompt, renderTemplate, resolveModel } from "../src/core.ts";
+import { parsePrompt, renderTemplate, resolveModel, samePath } from "../src/core.ts";
 
 test("parsePrompt exposes a complete command definition", () => {
   const source = `---
@@ -210,4 +210,14 @@ body`;
 test("strings.json keys are sorted", () => {
   const keys = Object.keys(JSON.parse(readFileSync(join(import.meta.dirname, "../prompts/strings.json"), "utf8")));
   assert.deepEqual(keys, [...keys].sort());
+});
+
+test("samePath compares resolved paths", () => {
+  assert.equal(samePath("a/../b", join(process.cwd(), "b")), true);
+  assert.equal(samePath("a", "b"), false);
+});
+
+test("samePath ignores separator style and case on Windows", { skip: process.platform !== "win32" }, () => {
+  assert.equal(samePath("C:/Users/Me/Project", "c:\\users\\me\\project"), true);
+  assert.equal(samePath("C:/Users/Me/Project", "C:\\Users\\Me\\Other"), false);
 });

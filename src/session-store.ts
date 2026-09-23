@@ -4,8 +4,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 
-import { renderString } from "./core.ts";
-import { samePath } from "./runner.ts";
+import { renderString, samePath } from "./core.ts";
 
 const sessionIdPattern = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -180,7 +179,7 @@ export class SessionStore {
     const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (!Check(turnSchema, value)) throw new Error(this.msg("malformed-turn-state", { path }));
     const turn = value as Turn;
-    if (!samePath(turn.log, join(this.dir(id), `${turn.id}.log`))) throw new Error(this.msg("malformed-turn-state", { path }));
+    if (!isAbsolute(turn.log) || !samePath(turn.log, join(this.dir(id), `${turn.id}.log`))) throw new Error(this.msg("malformed-turn-state", { path }));
     return turn;
   }
 }

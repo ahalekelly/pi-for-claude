@@ -2,17 +2,11 @@ import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 
-import { renderString } from "./core.ts";
+import { renderString, samePath } from "./core.ts";
 
 const stringsPath = join(import.meta.dirname, "..", "prompts", "strings.json");
 function msg(name: string, injections: Record<string, string> = {}): string {
   return renderString(stringsPath, name, injections);
-}
-
-// git prints POSIX separators even on Windows, where the filesystem also compares case-insensitively.
-export function samePath(a: string, b: string): boolean {
-  const [x, y] = [resolve(a), resolve(b)];
-  return process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
 export function git(cwd: string, args: string[]): string {
