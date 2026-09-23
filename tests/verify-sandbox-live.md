@@ -24,7 +24,7 @@ Run these bash tool calls individually, in this order. Continue after expected f
 Do not modify files or commit.
 EOF
 cd "$scratch"
-PI_BIN=pi PI_FOR_CLAUDE_HOME=/path/to/pi-for-claude node /path/to/pi-for-claude/src/pi-for-claude.ts implement-in-worktree sandbox-live.md
+PI_FOR_CLAUDE_HOME=/path/to/pi-for-claude node /path/to/pi-for-claude/src/pi-for-claude.ts implement-in-worktree sandbox-live.md
 ```
 
 While the final `sleep 30` runs, inspect it from another terminal:

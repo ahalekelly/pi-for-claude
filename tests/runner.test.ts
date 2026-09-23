@@ -413,28 +413,18 @@ test("view exports once by default and live-reloads with --live", async (t) => {
   const output = join(sessions, "view-me", "conversation.html");
   const opened = join(root, "opened.txt");
   writeSessionFixture(sessions, "view-me", { kind: "review", command: "review", mainCheckout: root, worktree: root, createdAt, conversation: source });
-  writeFileSync(source, "session data\n");
+  writeFileSync(source, `${JSON.stringify({ type: "session", version: 3, id: "view-me", timestamp: createdAt, cwd: root })}\n`);
 
-  const fakePi = join(commands, "pi.mjs");
-  writeFileSync(
-    fakePi,
-    `#!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
-if (process.argv[2] !== "--export") process.exit(2);
-writeFileSync(process.argv[4], "<body>exported: " + readFileSync(process.argv[3], "utf8") + "</body>");
-console.log("Exported to: " + process.argv[4]);
-`,
-  );
-  chmodSync(fakePi, 0o755);
   const fakeOpen = join(commands, "open");
   writeFileSync(fakeOpen, `#!/bin/sh\nprintf '%s' "$1" > "$OPENED_PATH"\n`);
   chmodSync(fakeOpen, 0o755);
 
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
-  const env = { ...process.env, PI_BIN: fakePi, OPENED_PATH: opened, PATH: `${commands}:${process.env.PATH}` };
+  const env = { ...process.env, OPENED_PATH: opened, PATH: `${commands}:${process.env.PATH}` };
   const exported = execFileSync(process.execPath, [cli, "view", "view-me", "--no-open"], { cwd: root, env, encoding: "utf8" });
   assert.equal(exported, `Exported to: ${output}\n`);
-  assert.equal(readFileSync(output, "utf8"), "<body>exported: session data\n</body>");
+  const firstExport = readFileSync(output, "utf8");
+  assert.match(firstExport, /<\/body>/);
   assert.equal(existsSync(opened), false);
 
   execFileSync(process.execPath, [cli, "view", "view-me"], { cwd: root, env });
@@ -453,10 +443,11 @@ console.log("Exported to: " + process.argv[4]);
   const events = await fetch(`${url}events`);
   const reader = events.body!.getReader();
   await reader.read();
-  appendFileSync(source, "more data\n");
+  const message = { role: "user", content: [{ type: "text", text: "more data" }], timestamp: 1 };
+  appendFileSync(source, `${JSON.stringify({ type: "message", id: "m1", parentId: null, timestamp: createdAt, message })}\n`);
   const update = await reader.read();
   assert.equal(new TextDecoder().decode(update.value), "data: reload\n\n");
-  assert.equal(readFileSync(output, "utf8"), "<body>exported: session data\nmore data\n</body>");
+  assert.notEqual(readFileSync(output, "utf8"), firstExport);
   await reader.cancel();
   viewed.kill();
   await new Promise((resolveExit) => viewed.once("exit", resolveExit));
@@ -498,7 +489,7 @@ test("view uses the packaged Pi instead of a PATH executable", () => {
 
   execFileSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "view", "packaged-pi", "--no-open"], {
     cwd: root,
-    env: { ...process.env, PI_BIN: undefined, PATH: `${commands}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${commands}:${process.env.PATH}` },
   });
   assert.equal(existsSync(output), true);
 });
