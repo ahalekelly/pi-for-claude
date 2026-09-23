@@ -19,12 +19,15 @@ Add a Markdown file with the prompt header to prompts/ to create a new pi-for-cl
 
 ## Setup
 
-You must have Node.js 22.19 or newer.
+Requires Node.js 24 or newer.
 
-Install from npm:
+Clone the repository and link the command:
 
 ```sh
-npm install --global pi-for-claude
+git clone https://github.com/ahalekelly/pi-for-claude.git
+cd pi-for-claude
+npm install
+npm link
 ```
 
 Configure Claude Code's sandbox, check Pi's command-sandbox dependencies, and install the global instructions and git ignore:
@@ -33,9 +36,11 @@ Configure Claude Code's sandbox, check Pi's command-sandbox dependencies, and in
 pi-for-claude setup
 ```
 
-`setup` generates the model-scoped instructions in Pi's user configuration; the installed package remains unchanged.
+`setup` generates the model-scoped instructions in Pi's user configuration; the checkout remains unchanged.
 
 Then start Pi and log in to your model providers of choice.
+
+When a provider rejects Pi's OAuth token mid-session, pi-for-claude refreshes the token and retries the turn once; if the refresh also fails, the session fails with the login command to run.
 
 Skill files are automatically loaded from the typical Pi locations:
 
@@ -51,10 +56,6 @@ Extensions installed in the user's normal system Pi configuration are not loaded
 Web research is provided by `pi-web-access`, using available Pi provider authentication or API keys such as `BRAVE_API_KEY`, `EXA_API_KEY`, or `OPENAI_API_KEY`.
 
 Browser automation is provided by `pi-agent-browser-native`, which exposes the bundled `agent-browser` runtime through the native `agent_browser` Pi tool and keeps its browser state separate from the user's normal browser profile unless the agent specifies otherwise.
-
-## Development
-
-Clone the repository, install dependencies with `npm install`, then run `npm link` to point the global `pi-for-claude` command at the checkout. `pi-for-claude version` prints the executable it resolves to, confirming the link. Update the checkout with `git pull`; `pi-for-claude update` refuses to replace it.
 
 ## Running Pi-for-Claude
 
@@ -143,8 +144,8 @@ Prompt commands call a model:
 Built-in commands do not call a model:
 
 - `setup` — configure the machine and check sandbox dependencies and provider login
-- `update` — atomically install the latest complete pi-for-claude package, then update installed Pi extensions
-- `version` — show the running package version, source revision, executable path, and latest published version
+- `update` — pull the pi-for-claude checkout, install its dependencies, then update installed Pi extensions
+- `version` — show the running package version, source revision, and executable path
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the persisted response from the last settled turn; reject a running or failed turn
 - `view <session> [--live | --no-open]` — export the conversation to HTML and optionally keep it updated

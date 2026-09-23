@@ -113,7 +113,7 @@ test("sessionIdFromPlan accepts portable plan names and rejects unsafe ones", ()
 });
 
 function scratchRepo(prefix: string): string {
-  const root = mkdtempSync(`/tmp/${prefix}`);
+  const root = mkdtempSync(join(tmpdir(), prefix));
   git(root, "init", "-b", "main");
   git(root, "config", "commit.gpgsign", "false");
   git(root, "config", "user.email", "pi-for-claude@example.test");
@@ -317,16 +317,13 @@ test("help ignores Markdown documentation in the prompts directory", () => {
   assert.match(output, /implement-in-worktree <plan-file>/);
 });
 
-test("version exposes the running package, revision, executable, and available update", () => {
+test("version exposes the running package, revision, and executable", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-version-"));
   const home = makePiForClaudeHome(root);
   const bin = join(root, "bin");
   mkdirSync(bin);
-  writeFileSync(join(home, ".git"), "gitdir: fixture\n");
   writeFileSync(join(bin, "git"), '#!/bin/sh\nprintf "0123456789abcdef0123456789abcdef01234567\\n"\n');
-  writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "0.2.1\\n"\n');
   chmodSync(join(bin, "git"), 0o755);
-  chmodSync(join(bin, "npm"), 0o755);
 
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
   const output = execFileSync(process.execPath, [cli, "version"], {
@@ -334,7 +331,7 @@ test("version exposes the running package, revision, executable, and available u
     env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, PI_FOR_CLAUDE_HOME: home },
     encoding: "utf8",
   });
-  assert.equal(output, `Version: 0.2.0\nRevision: 0123456789abcdef0123456789abcdef01234567\nExecutable: ${realpathSync(cli)}\nLatest: 0.2.1\n`);
+  assert.equal(output, `Version: 0.2.0\nRevision: 0123456789abcdef0123456789abcdef01234567\nExecutable: ${realpathSync(cli)}\n`);
 });
 
 test("run creates an isolated worktree and sends the composed prompt through the SDK", (t) => {
@@ -562,7 +559,7 @@ test("sandboxed bash cannot read Pi credentials but can read a project file", (t
 });
 
 test("run edits a non-git project in place and discard preserves its files", (t) => {
-  const root = mkdtempSync("/tmp/pi-for-claude-in-place-non-git-");
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-in-place-non-git-"));
   writeFileSync(join(root, "change.md"), "Create a file.\n");
   const model = startModelServer(root, [
     { kind: "tool", name: "bash", arguments: { command: "printf 'implemented\\n' > implemented.txt" } },
@@ -1228,7 +1225,7 @@ test("run prints each consult question once with its answer path", async (t) => 
 });
 
 test("a permission error creating session state explains the sandbox and the unsandboxed relaunch", () => {
-  const root = mkdtempSync("/tmp/pi-for-claude-eperm-");
+  const root = mkdtempSync(join(tmpdir(), "pi-for-claude-eperm-"));
   chmodSync(root, 0o500);
   try {
     const result = spawnSync(process.execPath, [join(import.meta.dirname, "../src/pi-for-claude.ts"), "sessions"], {

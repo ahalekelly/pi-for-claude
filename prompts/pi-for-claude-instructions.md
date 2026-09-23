@@ -51,6 +51,10 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 
 4. Close with `pi-for-claude discard <session>`: it closes the session and leaves project files in place; without a private checkout there is no `merge`.
 
+## Rejected OAuth tokens
+
+If a session fails because a provider rejected Pi's OAuth token and the refresh failed, the error names the login command. It needs a real terminal (`/login <provider>` in Pi's TUI), so ask the user to run it before resuming; resuming first fails the same way.
+
 ## Command reference
 
 - `implement-in-worktree <plan-file>` — implement a plan in a private Git checkout
@@ -66,11 +70,11 @@ Delegate tasks to GPT agents in Pi with `pi-for-claude`.
 - `interrupt <session>` — abort the active turn; the session remains resumable
 - `merge <session>` — import verified commits, fast-forward the project branch, and close the session
 - `discard <session>` — close the session and move its private checkout to the trash
-- `version` — show the running package version, revision, executable, and latest published version
+- `version` — show the running package version, revision, and executable
 
 Trailing flags on prompt commands (implement-in-worktree/run/resume/review):
 
-- `--model <label-or-id>` — labels come from the pi-for-claude checkout's `models.json`: `default` is the latest openai-codex Sol model at medium, `best` the same at xhigh, `cheap` the latest Luna model at medium
+- `--model <label-or-id>` — labels come from the pi-for-claude checkout's `models.json`: `default` is the latest openai-codex Sol model at medium, `best` the same at xhigh, `cheap` the latest Luna model at medium, `astra` the latest Astra model at xhigh for second opinions and reviews
 - `--thinking <level>` — override the label's thinking level
 - `--base <ref>` — diff base for reviews
 - `--no-consult` — unattended run: removes the consult tool, so Pi makes conservative assumptions and reports them instead of blocking on questions

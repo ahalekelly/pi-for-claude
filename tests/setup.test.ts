@@ -19,6 +19,8 @@ function machine() {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
+    // Node's os.homedir() reads USERPROFILE on Windows, not HOME.
+    USERPROFILE: home,
     XDG_CONFIG_HOME: "",
     GIT_CONFIG_GLOBAL: join(home, "global-git-config"),
     PI_CODING_AGENT_DIR: agentDir,
