@@ -42,7 +42,7 @@ function expectedSettings(agentDir: string) {
   };
 }
 
-test("setup configures a fresh machine and is idempotent", () => {
+test("setup configures a fresh machine and is idempotent", { skip: process.platform === "win32" }, () => {
   const { home, agentDir, run } = machine();
   const first = run();
   assert.equal(first.status, 0, first.stderr);
@@ -69,7 +69,7 @@ test("setup configures a fresh machine and is idempotent", () => {
   assert.deepEqual([settingsPath, claudePath, ignorePath].map((path) => readFileSync(path, "utf8")), before);
 });
 
-test("setup preserves existing settings and appends only missing lines with their line endings", () => {
+test("setup preserves existing settings and appends only missing lines with their line endings", { skip: process.platform === "win32" }, () => {
   const { home, agentDir, run } = machine();
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ theme: "dark", sandbox: { filesystem: { allowWrite: ["existing"] } } }));
@@ -87,7 +87,7 @@ test("setup preserves existing settings and appends only missing lines with thei
   assert.equal(readFileSync(join(home, ".config", "git", "ignore"), "utf8"), `.agents/sessions/\r\nlocal-only\r\n.agents/plans/\r\n.agents/worktrees/\r\n`);
 });
 
-test("setup rejects unparseable settings before writing any setup files", () => {
+test("setup rejects unparseable settings before writing any setup files", { skip: process.platform === "win32" }, () => {
   const { home, run } = machine();
   const settingsPath = join(home, ".claude", "settings.json");
   mkdirSync(join(home, ".claude"), { recursive: true });
@@ -101,7 +101,7 @@ test("setup rejects unparseable settings before writing any setup files", () => 
   assert.equal(existsSync(join(home, ".config", "git", "ignore")), false);
 });
 
-test("setup replaces an obsolete package instructions include", () => {
+test("setup replaces an obsolete package instructions include", { skip: process.platform === "win32" }, () => {
   const { home, agentDir, run } = machine();
   const claudePath = join(home, ".claude", "CLAUDE.md");
   mkdirSync(join(home, ".claude"), { recursive: true });
@@ -113,7 +113,7 @@ test("setup replaces an obsolete package instructions include", () => {
   assert.equal(readFileSync(claudePath, "utf8"), `# Global\n@${join(agentDir, "pi-for-claude-instructions.md")}\n`);
 });
 
-test("setup respects the configured global git excludes file", () => {
+test("setup respects the configured global git excludes file", { skip: process.platform === "win32" }, () => {
   const { root, home, run } = machine();
   const custom = join(root, "custom", "global-ignore");
   writeFileSync(join(home, "global-git-config"), `[core]\n\texcludesfile = ${custom}\n`);
@@ -138,4 +138,10 @@ test("setup reports missing sandbox dependencies after its other checks", { skip
   assert.match(result.stdout, /dependency error: ripgrep \(rg\) not found/);
   assert.match(result.stdout, /Provider login: not configured/);
   assert.match(result.stderr, /Pi's command sandbox is missing dependencies:.*ripgrep \(rg\) not found/);
+});
+
+test("setup reports that Windows is unsupported", { skip: process.platform !== "win32" }, () => {
+  const result = machine().run();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Pi's command sandbox is not supported on Windows/);
 });

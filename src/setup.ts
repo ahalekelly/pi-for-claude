@@ -86,6 +86,7 @@ function gitIgnorePath(homeDir: string, stringsHome: string): string {
 }
 
 export function setup(home: string): void {
+  if (process.platform === "win32") throw new Error(msg(home, "sandbox-windows-unsupported"));
   const homeDir = homedir();
   const paths = agentPaths();
   const settingsPath = join(homeDir, ".claude", "settings.json");

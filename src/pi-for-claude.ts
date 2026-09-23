@@ -517,6 +517,7 @@ function preflightAuthWrite(): void {
 }
 
 async function preflightSandbox(readOnly: boolean): Promise<void> {
+  if (process.platform === "win32") fail(msg("sandbox-windows-unsupported"));
   try {
     await SandboxManager.initialize(basePolicy(readOnly));
   } catch (error) {
