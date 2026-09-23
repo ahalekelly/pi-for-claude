@@ -19,7 +19,7 @@ Add a Markdown file with the prompt header to prompts/ to create a new pi-for-cl
 
 ## Setup
 
-Requires Node.js 24 or newer.
+Requires Node.js 24 or newer. Pi's command sandbox runs on Linux and macOS; Windows is not supported.
 
 Clone the repository and link the command:
 

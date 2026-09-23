@@ -88,6 +88,7 @@
   "sandbox-not-initialized-blocked": "Sandbox has not initialized; bash is blocked",
   "sandbox-preflight-failed": "Pi's command sandbox cannot start: $error\nSessions launched inside Claude Code's sandbox (Monitor or Bash without dangerouslyDisableSandbox) cannot start it. Launch unsandboxed instead: nohup pi-for-claude <command> … > /dev/null 2>&1 & then follow it with 'pi-for-claude watch <session>'. If rg or bwrap is missing, run 'pi-for-claude setup'.",
   "sandbox-unavailable-blocked": "Sandbox is unavailable; bash is blocked",
+  "sandbox-windows-unsupported": "Pi's command sandbox is not supported on Windows. Run pi-for-claude on Linux or macOS.",
   "sandboxed-command-aborted": "Sandboxed command aborted",
   "sandboxed-command-timeout": "Sandboxed command timed out after $seconds seconds",
   "sequence-entry-empty": "Prompt field '$field' has an empty $kind entry",
