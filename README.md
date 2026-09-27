@@ -144,7 +144,7 @@ Prompt commands call a model:
 Built-in commands do not call a model:
 
 - `setup` — configure the machine and check sandbox dependencies and provider login
-- `update` — pull the pi-for-claude checkout, install its dependencies, then update installed Pi extensions
+- `update` — pull the pi-for-claude checkout, install the latest Pi release, then update installed Pi extensions
 - `version` — show the running package version, source revision, and executable path
 - `sessions` — list sessions and their working directories
 - `result <session>` — print the persisted response from the last settled turn; reject a running or failed turn

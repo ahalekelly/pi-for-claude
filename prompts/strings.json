@@ -137,7 +137,7 @@
   "update-command-failed": "'$command' exited with status $status",
   "update-extensions": "Updating installed Pi extensions...",
   "update-needs-checkout": "pi-for-claude must run from its git checkout; install it with git clone, npm install, and npm link",
-  "update-package": "Pulling the pi-for-claude checkout and installing its dependencies...",
+  "update-package": "Pulling the pi-for-claude checkout and installing the latest Pi...",
   "update-usage": "Usage: pi-for-claude update",
   "version-info": "Version: $version\nRevision: $revision\nExecutable: $executable\n",
   "version-usage": "Usage: pi-for-claude version",

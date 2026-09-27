@@ -23,7 +23,7 @@ function logger(path: string, name: string): void {
   chmodSync(path, 0o755);
 }
 
-test("update pulls the checkout, installs dependencies, and refreshes extensions", () => {
+test("update pulls the checkout, moves Pi to its latest release, and refreshes extensions", () => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-update-"));
   const upstream = join(root, "upstream");
   const home = join(root, "home");
@@ -34,6 +34,7 @@ test("update pulls the checkout, installs dependencies, and refreshes extensions
   git(root, "clone", "-q", upstream, home);
   git(upstream, "commit", "--allow-empty", "-m", "newer");
   withStrings(home);
+  writeFileSync(join(home, "package.json"), JSON.stringify({ dependencies: { "@earendil-works/pi-ai": "^1.0.0", "@earendil-works/pi-coding-agent": "^1.0.0", yaml: "^2.0.0" } }));
 
   const piPackage = join(home, "node_modules", "@earendil-works", "pi-coding-agent");
   mkdirSync(join(piPackage, "dist"), { recursive: true });
@@ -56,7 +57,10 @@ test("update pulls the checkout, installs dependencies, and refreshes extensions
   }
 
   assert.equal(git(home, "rev-parse", "HEAD"), git(upstream, "rev-parse", "HEAD"));
-  assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), ["npm|install", "pi|update --extensions"]);
+  assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
+    "npm|install --min-release-age=0 @earendil-works/pi-ai@latest @earendil-works/pi-coding-agent@latest",
+    "pi|update --extensions",
+  ]);
 });
 
 test("update refuses to run outside a git checkout", () => {

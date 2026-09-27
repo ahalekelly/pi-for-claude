@@ -49,7 +49,10 @@ export function update(home: string): void {
 
   process.stdout.write(`${msg(home, "update-package")}\n`);
   run(home, "git", ["-C", home, "pull", "--ff-only"]);
-  run(home, ...npm(home, ["install"]));
+  // Pi's packages move to their latest releases the day they ship, past npm's release-age quarantine.
+  const metadata = JSON.parse(readFileSync(join(home, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+  const pi = Object.keys(metadata.dependencies).filter((name) => name.startsWith("@earendil-works/")).map((name) => `${name}@latest`);
+  run(home, ...npm(home, ["install", "--min-release-age=0", ...pi]));
 
   process.stdout.write(`${msg(home, "update-extensions")}\n`);
   run(home, process.execPath, [piCli(join(home, "package.json")), "update", "--extensions"]);
