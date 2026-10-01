@@ -49,10 +49,19 @@ export function update(home: string): void {
 
   process.stdout.write(`${msg(home, "update-package")}\n`);
   run(home, "git", ["-C", home, "pull", "--ff-only"]);
-  // Pi's packages move to their latest releases the day they ship, past npm's release-age quarantine.
+  // Pi's packages move to their latest releases once they are an hour old, past npm's release-age quarantine.
+  // The hour matters because npm lists a release minutes before its tarball downloads, so the newest release can 404.
   const metadata = JSON.parse(readFileSync(join(home, "package.json"), "utf8")) as { dependencies: Record<string, string> };
-  const pi = Object.keys(metadata.dependencies).filter((name) => name.startsWith("@earendil-works/")).map((name) => `${name}@latest`);
-  run(home, ...npm(home, ["install", "--min-release-age=0", ...pi]));
+  const releases = Object.keys(metadata.dependencies).filter((name) => name.startsWith("@earendil-works/")).map((name) => {
+    const view = JSON.parse(output(home, ...npm(home, ["view", name, "dist-tags.latest", "time", "--json"]))) as { "dist-tags.latest": string; time: Record<string, string> };
+    const version = view["dist-tags.latest"];
+    const published = view.time[version];
+    if (!published) throw new Error(msg(home, "release-time-missing", { release: `${name}@${version}` }));
+    return { spec: `${name}@${version}`, settled: Date.now() - Date.parse(published) > 60 * 60 * 1000 };
+  });
+  const fresh = releases.filter((release) => !release.settled).map((release) => release.spec);
+  if (fresh.length > 0) process.stdout.write(`${msg(home, "update-release-too-new", { releases: fresh.join(", ") })}\n`);
+  else run(home, ...npm(home, ["install", "--min-release-age=0", ...releases.map((release) => release.spec)]));
 
   process.stdout.write(`${msg(home, "update-extensions")}\n`);
   run(home, process.execPath, [piCli(join(home, "package.json")), "update", "--extensions"]);

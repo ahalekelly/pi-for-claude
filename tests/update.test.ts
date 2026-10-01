@@ -17,13 +17,17 @@ function withStrings(home: string): string {
   return home;
 }
 
-// A Node script that logs its name and arguments, runnable as a POSIX executable or with node.
+// A Node script that logs its name and arguments and answers `view` with UPDATE_VIEW, runnable as a POSIX executable or with node.
 function logger(path: string, name: string): void {
-  writeFileSync(path, `#!/usr/bin/env node\nrequire("node:fs").appendFileSync(process.env.UPDATE_LOG, "${name}|" + process.argv.slice(2).join(" ") + "\\n");\n`);
+  writeFileSync(path, `#!/usr/bin/env node
+require("node:fs").appendFileSync(process.env.UPDATE_LOG, "${name}|" + process.argv.slice(2).join(" ") + "\\n");
+if (process.argv[2] === "view") process.stdout.write(process.env.UPDATE_VIEW);
+`);
   chmodSync(path, 0o755);
 }
 
-test("update pulls the checkout, moves Pi to its latest release, and refreshes extensions", () => {
+// Runs update against a checkout one commit behind upstream, with Pi's latest release published `ageMinutes` ago.
+function runUpdate(ageMinutes: number): { log: string[]; home: string; upstream: string } {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-update-"));
   const upstream = join(root, "upstream");
   const home = join(root, "home");
@@ -49,18 +53,34 @@ test("update pulls the checkout, moves Pi to its latest release, and refreshes e
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${delimiter}${originalPath}`;
   process.env.UPDATE_LOG = log;
+  process.env.UPDATE_VIEW = JSON.stringify({ "dist-tags.latest": "1.1.0", time: { "1.1.0": new Date(Date.now() - ageMinutes * 60 * 1000).toISOString() } });
   try {
     update(home);
   } finally {
     process.env.PATH = originalPath;
     delete process.env.UPDATE_LOG;
+    delete process.env.UPDATE_VIEW;
   }
+  return { log: readFileSync(log, "utf8").trim().split("\n"), home, upstream };
+}
 
+const views = [
+  "npm|view @earendil-works/pi-ai dist-tags.latest time --json",
+  "npm|view @earendil-works/pi-coding-agent dist-tags.latest time --json",
+];
+
+test("update pulls the checkout, moves Pi to its latest hour-old release, and refreshes extensions", () => {
+  const { log, home, upstream } = runUpdate(61);
   assert.equal(git(home, "rev-parse", "HEAD"), git(upstream, "rev-parse", "HEAD"));
-  assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
-    "npm|install --min-release-age=0 @earendil-works/pi-ai@latest @earendil-works/pi-coding-agent@latest",
+  assert.deepEqual(log, [
+    ...views,
+    "npm|install --min-release-age=0 @earendil-works/pi-ai@1.1.0 @earendil-works/pi-coding-agent@1.1.0",
     "pi|update --extensions",
   ]);
+});
+
+test("update keeps the installed Pi while its latest release is under an hour old", () => {
+  assert.deepEqual(runUpdate(5).log, [...views, "pi|update --extensions"]);
 });
 
 test("update refuses to run outside a git checkout", () => {
