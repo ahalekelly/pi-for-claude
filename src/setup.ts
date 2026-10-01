@@ -128,9 +128,11 @@ export function setup(home: string): void {
   process.stdout.write(`${msg(home, settingsChanged ? "setup-settings-fixed" : "setup-settings-configured", { path: settingsPath })}\n`);
 
   const dependencies = SandboxManager.checkDependencies();
-  for (const error of dependencies.errors) process.stdout.write(`${msg(home, "setup-sandbox-dependency-error", { error })}\n`);
+  // Pi's bash blocks rm and points the agent at the system's trash command.
+  const errors = spawnSync("sh", ["-c", "command -v trash"]).status === 0 ? dependencies.errors : [...dependencies.errors, msg(home, "setup-trash-missing")];
+  for (const error of errors) process.stdout.write(`${msg(home, "setup-sandbox-dependency-error", { error })}\n`);
   for (const warning of dependencies.warnings) process.stdout.write(`${msg(home, "setup-sandbox-dependency-warning", { warning })}\n`);
-  if (dependencies.errors.length === 0) process.stdout.write(`${msg(home, "setup-sandbox-dependencies-configured")}\n`);
+  if (errors.length === 0) process.stdout.write(`${msg(home, "setup-sandbox-dependencies-configured")}\n`);
 
   const claudePath = join(homeDir, ".claude", "CLAUDE.md");
   const include = `@${refreshInstructions(SettingsManager, home, process.cwd())}`;
@@ -143,7 +145,7 @@ export function setup(home: string): void {
 
   const loggedIn = existsSync(paths.auth) && statSync(paths.auth).size > 0;
   process.stdout.write(`${msg(home, loggedIn ? "setup-auth-configured" : "setup-auth-missing", { path: paths.auth })}\n`);
-  if (dependencies.errors.length > 0) {
-    throw new Error(msg(home, "setup-sandbox-dependencies-missing", { errors: dependencies.errors.join(", ") }));
+  if (errors.length > 0) {
+    throw new Error(msg(home, "setup-sandbox-dependencies-missing", { errors: errors.join(", ") }));
   }
 }

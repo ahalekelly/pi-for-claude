@@ -32,7 +32,6 @@
     "pi-web-access": "^0.18.0",
     "shell-quote": "1.10.0",
     "trash": "10.1.1",
-    "trash-cli": "github:ahalekelly/trash-cli#b207092a560294f0bc00d700b330c5de7771d6d2",
     "typebox": "1.1.38",
     "yaml": "^2.9.0"
   },
