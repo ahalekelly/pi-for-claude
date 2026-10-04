@@ -558,20 +558,19 @@ test("sandboxed bash cannot read Pi credentials but can read a project file", (t
   assert.match(requests[2]!, /PROJECT_FILE_MARKER/);
 });
 
-test("run edits a non-git project in place and discard preserves its files", (t) => {
+test("run edits a non-git project in place, resume continues it, and discard preserves its files", (t) => {
   const root = mkdtempSync(join(tmpdir(), "pi-for-claude-in-place-non-git-"));
   writeFileSync(join(root, "change.md"), "Create a file.\n");
   const model = startModelServer(root, [
     { kind: "tool", name: "bash", arguments: { command: "printf 'implemented\\n' > implemented.txt" } },
     { kind: "text", text: "Implemented in place." },
+    { kind: "tool", name: "bash", arguments: { command: "printf 'resumed\\n' > resumed.txt" } },
+    { kind: "text", text: "Resumed in place." },
   ]);
   t.after(model.stop);
   const cli = join(import.meta.dirname, "../src/pi-for-claude.ts");
-  const output = execFileSync(process.execPath, [cli, "run", "change.md"], {
-    encoding: "utf8",
-    cwd: root,
-    env: { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) },
-  });
+  const env = { ...process.env, ...model.env, PI_FOR_CLAUDE_HOME: makePiForClaudeHome(root) };
+  const output = execFileSync(process.execPath, [cli, "run", "change.md"], { encoding: "utf8", cwd: root, env });
 
   const sessions = join(root, ".agents/sessions");
   const recordPath = sessionArtifact(sessions, "change");
@@ -589,6 +588,8 @@ test("run edits a non-git project in place and discard preserves its files", (t)
   assert.equal(existsSync(join(root, ".git")), false);
   assert.equal(existsSync(join(root, ".agents/worktrees/change")), false);
   assert.equal(execFileSync(process.execPath, [cli, "result", "change"], { encoding: "utf8", cwd: root }), "Implemented in place.\n");
+  assert.match(execFileSync(process.execPath, [cli, "resume", "change", "Keep going."], { encoding: "utf8", cwd: root, env }), /Resumed in place\./);
+  assert.equal(readFileSync(join(root, "resumed.txt"), "utf8"), "resumed\n");
   assert.match(execFileSync(process.execPath, [cli, "discard", "change"], { encoding: "utf8", cwd: root }), /Discarded 'change'/);
   assert.equal(JSON.parse(readFileSync(recordPath, "utf8")).status, "closed");
   assert.equal(readFileSync(join(root, "implemented.txt"), "utf8"), "implemented\n");

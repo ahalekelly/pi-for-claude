@@ -44,7 +44,6 @@ Implement $plan on $branch.
     model: "default",
     thinking: { kind: "prompt", level: "high" },
     mode: "worktree",
-    sandbox: "worktree-write",
     consult: "Ask when blocked",
     inject: { branch: "git branch --show-current" },
     input: [
@@ -87,7 +86,6 @@ $plan
       model: "default",
       thinking: { kind: "prompt", level: "high" },
       mode: "in-place",
-      sandbox: "project-write",
       consult: "Ask when blocked",
       inject: {},
       input: [{ kind: "prompt" }],

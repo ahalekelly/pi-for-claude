@@ -180,6 +180,12 @@ function assistantText(messageValue: unknown): string | undefined {
   return text.join("");
 }
 
+function sandboxMode(session: Session | NewSession): "worktree-write" | "project-write" | "read-only" {
+  if (session.kind === "worktree") return "worktree-write";
+  if (session.kind === "in-place") return "project-write";
+  return "read-only";
+}
+
 function rebaseInProgress(worktree: string): boolean {
   return existsSync(git(worktree, ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"]));
 }
@@ -218,7 +224,6 @@ async function sdkRun(
   session: Session | NewSession,
   sessions: string,
   store: SessionStore,
-  command: PromptCommand,
   prompt: string,
   modelName: string,
   thinking: string,
@@ -234,7 +239,7 @@ async function sdkRun(
   const executablePath = process.env.PATH;
   if (!executablePath) fail(msg("path-required"));
   process.chdir(session.worktree);
-  process.env.PI_FOR_CLAUDE_SANDBOX_MODE = command.sandbox;
+  process.env.PI_FOR_CLAUDE_SANDBOX_MODE = sandboxMode(session);
   process.env.PI_FOR_CLAUDE_SESSION_DIR = sessionDir;
   process.env.PI_FOR_CLAUDE_SESSION_ID = session.id;
   process.env.PI_FOR_CLAUDE_SYSTEM_PATH = executablePath;
@@ -273,7 +278,7 @@ async function sdkRun(
     if (!conversation) fail(msg("conversation-path-required"));
     store.save(session, conversation);
   }
-  const projectTools = command.sandbox === "read-only"
+  const projectTools = session.kind === "review"
     ? ["read", "bash", "grep", "find", "ls"]
     : ["read", "bash", "write", "edit", "grep", "find", "ls"];
   const capabilityTools = [...(consult ? ["consult_orchestrator"] : []), "web_search", "fetch_content", "get_search_content", "agent_browser"];
@@ -420,7 +425,7 @@ async function sdkRun(
     }
     if (modelError) throw modelError;
 
-    const checkHandback = session.kind === "worktree" && command.sandbox === "worktree-write" && !rebaseInProgress(session.worktree);
+    const checkHandback = session.kind === "worktree" && !rebaseInProgress(session.worktree);
     if (result && !abortRequested && checkHandback) {
       const blocker = handbackBlocker(session.worktree);
       if (blocker) {
@@ -595,7 +600,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
   if (session.kind !== "review") resumableSessionId = session.id;
   await preflightControlBinding();
   preflightAuthWrite();
-  await preflightSandbox(command.sandbox === "read-only");
+  await preflightSandbox(session.kind === "review");
   const sdk = await import("@earendil-works/pi-coding-agent");
   refreshInstructions(sdk.SettingsManager, home, project);
   const models = JSON.parse(readFileSync(join(home, "models.json"), "utf8")) as unknown;
@@ -612,7 +617,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
     appendFileSync(join(session.worktree, ".git", "info", "exclude"), `\n${sandboxGitExcludes.join("\n")}\n`);
   }
   const prompt = composePrompt(command, session.worktree, dirs.root, promptArgs, flags);
-  const run = await sdkRun(sdk, modelRuntime, session, dirs.sessions, dirs.store, command, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
+  const run = await sdkRun(sdk, modelRuntime, session, dirs.sessions, dirs.store, prompt, resolvedModel.model, resolvedModel.thinking, flags.consult);
   session = dirs.store.read(session.id);
   for (const entry of command.output) {
     switch (entry.kind) {
@@ -632,7 +637,7 @@ async function runPrompt(name: string, project: string, values: string[]): Promi
       }
     }
   }
-  if (session.kind === "worktree" && command.sandbox === "worktree-write") {
+  if (session.kind === "worktree") {
     if (rebaseInProgress(session.worktree)) {
       const conflicts = git(session.worktree, ["diff", "--name-only", "--diff-filter=U"]);
       emit(`\n${msg("handback-rebase-warning", { worktree: session.worktree, conflicts })}\n`);
