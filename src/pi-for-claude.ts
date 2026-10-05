@@ -303,7 +303,11 @@ async function sdkRun(
     lastEventAt = Date.now();
     if (event.type !== "message_end" || event.message.role !== "assistant") return;
     if (event.message.stopReason === "error") {
-      modelError = new Error(event.message.errorMessage ? msg("pi-model-error", { message: event.message.errorMessage }) : msg("pi-model-error-no-message"));
+      // Name the provider and model so a reader can tell which credential Pi
+      // used: an OAuth-backed provider that rejects an API key it was never
+      // given is the provider's backend failing, not a local config problem.
+      const model = `${event.message.provider}/${event.message.model}`;
+      modelError = new Error(event.message.errorMessage ? msg("pi-model-error", { model, message: event.message.errorMessage }) : msg("pi-model-error-no-message", { model }));
       return;
     }
     // Pi auto-retries transient stream errors (rate limits, dropped
