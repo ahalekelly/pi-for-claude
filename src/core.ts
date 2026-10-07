@@ -53,10 +53,8 @@ type PromptFields = {
 
 export type PromptCommand = PromptFields &
   (
-    | { mode: "worktree"; sandbox: "worktree-write"; consult: string }
-    | { mode: "resume"; sandbox: "worktree-write"; consult: string }
-    | { mode: "in-place"; sandbox: "project-write"; consult: string }
-    | { mode: "review"; sandbox: "read-only" }
+    | { mode: "worktree" | "resume" | "in-place"; consult: string }
+    | { mode: "review" }
   );
 
 const contentEntrySchema = Type.Union([
@@ -147,12 +145,10 @@ export function parsePrompt(source: string): PromptCommand {
 
   if (prompt.mode === "review") {
     if (prompt.consult !== undefined) throw new Error(msg("review-consult-forbidden"));
-    return { ...fields, mode: prompt.mode, sandbox: "read-only" };
+    return { ...fields, mode: prompt.mode };
   }
   if (prompt.consult === undefined) throw new Error(msg("mode-requires-consult", { mode: prompt.mode }));
-  if (prompt.mode === "worktree") return { ...fields, mode: prompt.mode, sandbox: "worktree-write", consult: prompt.consult };
-  if (prompt.mode === "resume") return { ...fields, mode: prompt.mode, sandbox: "worktree-write", consult: prompt.consult };
-  return { ...fields, mode: prompt.mode, sandbox: "project-write", consult: prompt.consult };
+  return { ...fields, mode: prompt.mode, consult: prompt.consult };
 }
 
 export function renderTemplate(body: string, args: string[], injections: Record<string, string>): string {

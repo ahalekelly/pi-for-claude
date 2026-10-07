@@ -13,7 +13,7 @@ Features:
 - Isolated Git checkouts for Pi agents, with verified commit handoff and basic rebases
 - Sandbox each run with scoped filesystem access
 - Built-in web research and browser automation tools
-- A simple format to save prompts and workflows. Separate model and sandbox settings for each saved prompt
+- A simple format to save prompts and workflows, each with its own model settings
 
 Each Pi session shows up as a "monitor" in the Claude Code status bar.
 
@@ -182,15 +182,15 @@ A single `*` selects the registered model with the highest one- or two-part nume
 
 ## Reusable Prompts
 
-Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, sandbox, and session lifecycle; their body defines the main prompt sent to Pi. The ordered `input` list assembles Pi's message: `prompt` inserts the rendered Markdown body, `text` inserts literal text, and best-effort `shell` inserts command output. A failed input shell sends the same warning to Pi and Claude, then the run continues. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and best-effort `shell` emits traced command output. Trusted shell entries run outside Pi's sandbox. The included commands are useful examples.
+Markdown files under `prompts/` define reusable commands. Their header specifies the model, thinking level, and session lifecycle; their body defines the main prompt sent to Pi. The ordered `input` list assembles Pi's message: `prompt` inserts the rendered Markdown body, `text` inserts literal text, and best-effort `shell` inserts command output. A failed input shell sends the same warning to Pi and Claude, then the run continues. The ordered `output` list controls what Claude sees: `pi` emits Pi's response, `text` emits literal text, and best-effort `shell` emits traced command output. Trusted shell entries run outside Pi's sandbox. The included commands are useful examples.
 
 ## Sandbox
 
-Each prompt chooses one sandbox:
+The session kind sets the sandbox:
 
-- `project-write` can edit the current project but cannot write git metadata
-- `worktree-write` can edit and commit only inside its private session checkout
-- `read-only` cannot edit the project
+- `project-write` (`run` sessions) can edit the current project but cannot write git metadata
+- `worktree-write` (`implement-in-worktree` sessions) can edit and commit only inside its private session checkout
+- `read-only` (reviews) cannot edit the project
 
 All modes restrict filesystem access, leave command network access unrestricted, and fail closed if the operating-system sandbox cannot start. Paths in `denyRead` protect credentials. `pi-for-claude setup` grants the wrapper write access to Pi's agent directory and local control-channel binding while denying Claude direct reads of the auth files.
 
