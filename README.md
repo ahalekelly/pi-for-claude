@@ -1,5 +1,7 @@
 # pi-for-claude
 
+> **Archived.** T3 Code now runs Pi directly as a provider, with [pi-sandbox](https://github.com/ahalekelly/pi-sandbox) as the OS-level sandbox extension. This repository is kept for reference only.
+
 `pi-for-claude` allows Claude Code or other AI agents to delegate tasks to Pi agents. Pi is a minimalist, customizable agent harness that supports OpenAI Codex, Google Gemini, and many other models.
 
 Features:
